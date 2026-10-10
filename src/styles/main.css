@@ -1,0 +1,613 @@
+/*
+  Top Notch Dog Grooming design tokens, taken from the logo:
+  logo yellow #FAD006, logo black, and white. Yellow marks the one primary action on a screen and
+  how booked a day is; black carries text, structure and selection; neutral greys do the rest.
+*/
+:root {
+  --paper: #ffffff;
+  --surface: #ffffff;
+  --surface-sunk: #f4f4f3;
+  --grout: #e2e2e0;
+  --grout-strong: #c4c4c1;
+  --ink: #0a0a0a;
+  --ink-soft: #545454;
+  --brand: #fad006;
+  --brand-press: #e6be00;
+  --on-brand: #0a0a0a;
+  --brand-faint: #fff6cc;
+  /* Calendar fill: partly booked = light yellow rising; full = grey (no longer bookable) */
+  --fill-color: #fde27a;
+  --fill-line: #fad006;
+  --fill-full: #dededc;
+  /* fill inside the selected (black) tile, kept dark so the white date stays readable */
+  --fill-selected: #4a4a48;
+  --accent-ink: #0a0a0a;
+  --bar-bg: #0a0a0a;
+  --bar-ink: #ffffff;
+  --alert: #c62828;
+  --alert-bg: #fdecea;
+  --ok: #1b7a3d;
+  --ok-bg: #e6f4ea;
+  --focus: #0a0a0a;
+  /* Single-series chart marks: black on white (>= 3:1), logo yellow on dark */
+  --chart: #0a0a0a;
+
+  --font: 'Recursive Variable', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* 1.25 scale from a 16px base */
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.5625rem;
+  --step-3: 1.953rem;
+  --step-4: 2.441rem;
+
+  --radius-tile: 8px;
+  --radius-panel: 14px;
+  --radius-sheet: 22px;
+  --radius-pill: 999px;
+
+  --nav-h: 64px;
+  --top-h: 60px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --page-max: 1120px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0a0a0a;
+    --surface: #161616;
+    --surface-sunk: #111111;
+    --grout: #2b2b2b;
+    --grout-strong: #424242;
+    --ink: #f5f5f5;
+    --ink-soft: #b0b0b0;
+    --brand-faint: #2a2408;
+    --fill-color: #b38f00;
+    --fill-line: #fad006;
+    --fill-full: #333333;
+    --fill-selected: #fad006;
+    --accent-ink: #fad006;
+    --bar-bg: #1c1c1c;
+    --bar-ink: #ffffff;
+    --alert: #ff8a80;
+    --alert-bg: #3a1d1d;
+    --ok: #7fd6a4;
+    --ok-bg: #133325;
+    --focus: #fad006;
+    --chart: #fad006;
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--step-0);
+  font-weight: 420;
+  line-height: 1.5;
+  font-variation-settings: 'CASL' 0;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.15;
+  font-weight: 760;
+  font-variation-settings: 'CASL' 1;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--step-3);
+}
+h2 {
+  font-size: var(--step-2);
+}
+h3 {
+  font-size: var(--step-1);
+}
+
+p {
+  margin: 0;
+  max-width: 68ch;
+  text-wrap: pretty;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- layout ---------- */
+
+.page {
+  width: 100%;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 20px 16px calc(var(--nav-h) + var(--safe-b) + 32px);
+  display: grid;
+  gap: 24px;
+  align-content: start;
+}
+
+.page-narrow {
+  max-width: 640px;
+}
+
+@media (min-width: 900px) {
+  .page {
+    padding: 32px 32px 64px;
+    gap: 32px;
+  }
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.stack-lg {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.spread {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.small {
+  font-size: var(--step--1);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.casual {
+  font-variation-settings: 'CASL' 1;
+}
+
+/* ---------- surfaces ---------- */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--grout);
+  border-radius: var(--radius-panel);
+  padding: 16px;
+}
+
+@media (min-width: 900px) {
+  .panel {
+    padding: 22px;
+  }
+}
+
+.panel-sunk {
+  background: var(--surface-sunk);
+  border-radius: var(--radius-panel);
+  padding: 14px 16px;
+}
+
+.divider-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A list that is also a panel keeps the panel's side padding (and drops the top/bottom). */
+.divider-list.panel {
+  padding: 0 16px;
+}
+
+@media (min-width: 900px) {
+  .divider-list.panel {
+    padding: 0 22px;
+  }
+}
+
+.divider-list > li + li {
+  border-top: 1px solid var(--grout);
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--grout-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 640;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s, transform 0.08s;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: var(--surface-sunk);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+}
+
+.btn-primary:hover {
+  background: var(--brand-press);
+  border-color: var(--brand-press);
+}
+
+.btn-dark {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.btn-dark:hover {
+  background: var(--ink);
+  opacity: 0.9;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn-danger {
+  color: var(--alert);
+  border-color: color-mix(in srgb, var(--alert) 40%, transparent);
+}
+
+.btn-sm {
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: var(--step--1);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.icon-btn {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: var(--surface-sunk);
+}
+
+/* ---------- forms ---------- */
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > label,
+.field-label {
+  font-weight: 620;
+  font-size: var(--step--1);
+}
+
+.field-hint {
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+
+.field-error {
+  font-size: var(--step--1);
+  color: var(--alert);
+  font-weight: 560;
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--grout-strong);
+  background: var(--surface);
+  color: var(--ink);
+  /* 16px stops iOS Safari zooming into focused inputs */
+  font: inherit;
+  font-size: 16px;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: var(--accent-ink);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 60%, transparent);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--alert);
+}
+
+.grid-2 {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 560px) {
+  .grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.check {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-height: 44px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.check input {
+  width: 22px;
+  height: 22px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-ink);
+  flex: none;
+}
+
+/* Choice chips (radio/checkbox styled as pills) */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--grout-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.chip[aria-pressed='true'],
+.chip[aria-checked='true'] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+/* Option cards for services, pets, add-ons */
+.option {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: var(--radius-panel);
+  border: 1.5px solid var(--grout);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.option:hover {
+  border-color: var(--grout-strong);
+}
+
+.option[aria-checked='true'],
+.option[aria-pressed='true'] {
+  border-color: var(--accent-ink);
+  box-shadow: inset 0 0 0 1.5px var(--accent-ink);
+  background: var(--brand-faint);
+}
+
+.option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- feedback ---------- */
+
+.alert {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--alert-bg);
+  color: var(--alert);
+  font-weight: 520;
+}
+
+.note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--brand-faint);
+}
+
+.success {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.skeleton {
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--surface-sunk), var(--grout), var(--surface-sunk));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+  min-height: 20px;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: var(--step--1);
+  font-weight: 620;
+  background: var(--surface-sunk);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* ---------- sticky action bar (thumb zone on phones) ---------- */
+
+.action-bar {
+  position: sticky;
+  bottom: calc(var(--nav-h) + var(--safe-b) + 8px);
+  z-index: 5;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 10px 18px;
+  border-radius: var(--radius-pill);
+  background: var(--bar-bg);
+  color: var(--bar-ink);
+  border: 1px solid var(--grout);
+}
+
+.action-bar :focus-visible {
+  outline-color: var(--brand);
+}
+
+/* On the dark bar a faded yellow turns olive; use a quiet outline instead. */
+.action-bar .btn-primary:disabled {
+  opacity: 1;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--bar-ink) 30%, transparent);
+  color: color-mix(in srgb, var(--bar-ink) 55%, transparent);
+}
+
+@media (min-width: 900px) {
+  .action-bar {
+    bottom: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

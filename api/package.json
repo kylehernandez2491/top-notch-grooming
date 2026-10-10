@@ -1,0 +1,32 @@
+{
+  "name": "top-notch-grooming-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Managed Azure Functions (Node.js, v4 programming model) for the Top Notch Dog Grooming booking app",
+  "main": "dist/src/functions/*.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "clean": "rm -rf dist",
+    "prestart": "npm run clean && npm run build",
+    "start": "func start",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@azure/communication-email": "^1.1.0",
+    "@azure/cosmos": "^4.10.1",
+    "@azure/functions": "^4.16.5",
+    "luxon": "^3.7.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.6",
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

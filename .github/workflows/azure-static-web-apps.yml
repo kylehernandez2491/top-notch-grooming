@@ -1,0 +1,80 @@
+name: Build, test and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: swa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            api/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix api
+      - name: Type-check front end
+        run: npm run typecheck
+      - name: Type-check API
+        run: npm --prefix api run typecheck
+      - name: Booking engine tests
+        run: npm --prefix api test
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The OIDC metadata URL can't come from an app setting, so it is injected at deploy time.
+      - name: Inject Entra External ID metadata URL
+        env:
+          WELL_KNOWN: ${{ vars.ENTRA_WELL_KNOWN_URL }}
+        run: |
+          if [ -z "$WELL_KNOWN" ]; then
+            echo "::error::Set the ENTRA_WELL_KNOWN_URL repository variable (see README, step 3)."
+            exit 1
+          fi
+          sed -i "s|__ENTRA_WELL_KNOWN_URL__|${WELL_KNOWN}|" staticwebapp.config.json
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: /
+          api_location: api
+          output_location: dist
+        env:
+          APP_VERSION: ${{ github.sha }}
+
+  close_preview:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove the pull request preview environment
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: close

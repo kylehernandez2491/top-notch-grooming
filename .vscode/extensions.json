@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "Vue.volar",
+    "ms-azuretools.vscode-azurefunctions",
+    "ms-azuretools.vscode-azurestaticwebapps",
+    "ms-azuretools.vscode-cosmosdb",
+    "ms-azuretools.vscode-bicep",
+    "vitest.explorer",
+    "anthropic.claude-code"
+  ]
+}
