@@ -69,7 +69,7 @@ flowchart LR
   GH[GitHub Actions hourly] -->|POST /api/jobs/reminders + x-jobs-key| API
 ```
 
-- **Auth:** SWA custom OpenID Connect provider `entraExternalId`. At sign-in SWA calls `/api/roles` (the `rolesSource` function), which grants `admin` to anyone listed in `ADMIN_EMAILS`. Route rules in `staticwebapp.config.json` gate `/api/*` and `/api/admin/*`, and every handler re-checks the principal.
+- **Auth:** SWA custom OpenID Connect provider `entraExternalId`. At sign-in SWA calls `/api/roles` (the `rolesSource` function), which grants `admin` to anyone listed in `ADMIN_EMAILS`. Route rules in `staticwebapp.config.json` gate `/api/*` and `/api/staff/*`, and every handler re-checks the principal.
 - **Reminders:** managed functions only support HTTP triggers, so `.github/workflows/reminders.yml` calls a key-protected endpoint hourly. It's idempotent because each appointment is stamped `reminderSentAt`.
 
 ### Why double booking can't happen
@@ -222,12 +222,12 @@ Everything else (hours, rules, prices, policies) is edited in the staff portal.
 | `GET /api/appointments/{id}` · `/ics` | owner/staff | details, calendar file |
 | `POST /api/appointments/{id}/cancel` · `/reschedule` · `/review`, `PUT …/notes` | owner | manage a booking |
 | `GET/POST /api/waitlist`, `DELETE /api/waitlist/{day}/{id}` | owner | waitlist |
-| `GET /api/admin/agenda?from&to` | staff | appointments, waitlist and closures for a range |
-| `GET /api/admin/appointments/{id}`, `POST …/status` · `…/reschedule`, `PUT …/staff-notes` · `…/report-card` | staff | run the day |
-| `GET/PUT /api/admin/settings` | staff | hours and rules |
-| `GET/POST /api/admin/catalog/{service\|addon\|closure}`, `PUT/DELETE …/{id}` | staff | menu and time off |
-| `GET /api/admin/clients?q`, `GET/PATCH /api/admin/clients/{ownerId}` | staff | client lookup, no-show reset |
-| `GET /api/admin/stats?from&to`, `GET /api/admin/export?from&to` | staff | reports, CSV |
+| `GET /api/staff/agenda?from&to` | staff | appointments, waitlist and closures for a range |
+| `GET /api/staff/appointments/{id}`, `POST …/status` · `…/reschedule`, `PUT …/staff-notes` · `…/report-card` | staff | run the day |
+| `GET/PUT /api/staff/settings` | staff | hours and rules |
+| `GET/POST /api/staff/catalog/{service\|addon\|closure}`, `PUT/DELETE …/{id}` | staff | menu and time off |
+| `GET /api/staff/clients?q`, `GET/PATCH /api/staff/clients/{ownerId}` | staff | client lookup, no-show reset |
+| `GET /api/staff/stats?from&to`, `GET /api/staff/export?from&to` | staff | reports, CSV |
 | `POST /api/roles` | SWA | rolesSource |
 | `POST /api/jobs/reminders` | GitHub Actions (`x-jobs-key`) | send due reminders |
 | `GET /api/health` | anyone | liveness + Cosmos check |

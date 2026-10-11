@@ -84,7 +84,7 @@
       ]
     },
     {
-      "route": "/api/admin/*",
+      "route": "/api/staff/*",
       "allowedRoles": [
         "admin"
       ]

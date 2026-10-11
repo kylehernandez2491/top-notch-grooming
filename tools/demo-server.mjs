@@ -215,7 +215,7 @@ async function api(req, url, as) {
     appointments.push(appt);
     return [201, { appointments: [appt], skipped: [] }];
   }
-  if ((match = p.match(/^(?:admin\/)?appointments\/([^/]+)(?:\/(\w[\w-]*))?$/))) {
+  if ((match = p.match(/^(?:staff\/)?appointments\/([^/]+)(?:\/(\w[\w-]*))?$/))) {
     const appt = appointments.find((a) => a.id === match[1]);
     if (!appt) return [404, { error: { message: 'Appointment not found.' } }];
     const action = match[2];
@@ -226,18 +226,18 @@ async function api(req, url, as) {
   if (p === 'waitlist') return [200, waitlist];
 
   if (!admin) return [403, { error: { message: 'Staff access only.' } }];
-  if (p === 'admin/agenda') {
+  if (p === 'staff/agenda') {
     const from = q.get('from'), to = q.get('to');
     return [200, { from, to, appointments: sorted(appointments.filter((a) => a.day >= from && a.day <= to)), waitlist: [], closures: closures.filter((c) => c.date >= from && c.date <= to) }];
   }
-  if (p === 'admin/settings') return [200, settings];
-  if ((match = p.match(/^admin\/catalog\/(service|addon|closure)$/))) return [200, { service: services, addon: addOns, closure: closures }[match[1]]];
-  if (p === 'admin/clients') return [200, [...profiles.values()].map((profile) => ({ profile, petCount: pets.filter((x) => x.ownerId === profile.ownerId).length }))];
-  if ((match = p.match(/^admin\/clients\/([^/]+)$/))) {
+  if (p === 'staff/settings') return [200, settings];
+  if ((match = p.match(/^staff\/catalog\/(service|addon|closure)$/))) return [200, { service: services, addon: addOns, closure: closures }[match[1]]];
+  if (p === 'staff/clients') return [200, [...profiles.values()].map((profile) => ({ profile, petCount: pets.filter((x) => x.ownerId === profile.ownerId).length }))];
+  if ((match = p.match(/^staff\/clients\/([^/]+)$/))) {
     const profile = profiles.get(match[1]);
     return [200, { profile, pets: pets.filter((x) => x.ownerId === profile.ownerId), appointments: sorted(appointments.filter((a) => a.ownerId === profile.ownerId)) }];
   }
-  if (p === 'admin/stats') return [200, stats(q.get('from'), q.get('to'))];
+  if (p === 'staff/stats') return [200, stats(q.get('from'), q.get('to'))];
   return [404, { error: { message: `Demo server has no handler for ${m} /api/${p}` } }];
 }
 

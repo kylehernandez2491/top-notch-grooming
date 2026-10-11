@@ -56,7 +56,7 @@ function range(req: Parameters<typeof query>[0], today: string, defaultDays: num
 
 // ---------- agenda & appointments ----------
 
-route('adminAgenda', ['GET'], 'admin/agenda', async (req): Promise<AgendaResponse> => {
+route('adminAgenda', ['GET'], 'staff/agenda', async (req): Promise<AgendaResponse> => {
   requireAdmin(req);
   const c = await getContainers();
   const settings = await getSettings(c);
@@ -72,13 +72,13 @@ route('adminAgenda', ['GET'], 'admin/agenda', async (req): Promise<AgendaRespons
   return { from, to, appointments, waitlist: waitlist.map(clean), closures };
 });
 
-route('adminAppointmentGet', ['GET'], 'admin/appointments/{id}', async (req) => {
+route('adminAppointmentGet', ['GET'], 'staff/appointments/{id}', async (req) => {
   requireAdmin(req);
   const c = await getContainers();
   return clean(await findAppointment(c, req.params.id));
 });
 
-route('adminAppointmentStatus', ['POST'], 'admin/appointments/{id}/status', async (req, ctx) => {
+route('adminAppointmentStatus', ['POST'], 'staff/appointments/{id}/status', async (req, ctx) => {
   requireAdmin(req);
   const input = await readBody(req, statusInput);
   const c = await getContainers();
@@ -115,7 +115,7 @@ route('adminAppointmentStatus', ['POST'], 'admin/appointments/{id}/status', asyn
   return saved;
 });
 
-route('adminAppointmentNotes', ['PUT'], 'admin/appointments/{id}/staff-notes', async (req) => {
+route('adminAppointmentNotes', ['PUT'], 'staff/appointments/{id}/staff-notes', async (req) => {
   requireAdmin(req);
   const { staffNotes } = await readBody(req, staffNotesInput);
   const c = await getContainers();
@@ -123,7 +123,7 @@ route('adminAppointmentNotes', ['PUT'], 'admin/appointments/{id}/staff-notes', a
   return saveAppointment(c.bookings, appointment, { ...clean(appointment), staffNotes, updatedAt: new Date().toISOString() });
 });
 
-route('adminReportCard', ['PUT'], 'admin/appointments/{id}/report-card', async (req, ctx) => {
+route('adminReportCard', ['PUT'], 'staff/appointments/{id}/report-card', async (req, ctx) => {
   requireAdmin(req);
   const input = await readBody(req, reportCardInput);
   const c = await getContainers();
@@ -138,7 +138,7 @@ route('adminReportCard', ['PUT'], 'admin/appointments/{id}/report-card', async (
   return saved;
 });
 
-route('adminReschedule', ['POST'], 'admin/appointments/{id}/reschedule', async (req, ctx) => {
+route('adminReschedule', ['POST'], 'staff/appointments/{id}/reschedule', async (req, ctx) => {
   requireAdmin(req);
   const target = await readBody(req, rescheduleInput);
   const c = await getContainers();
@@ -148,14 +148,14 @@ route('adminReschedule', ['POST'], 'admin/appointments/{id}/reschedule', async (
 
 // ---------- settings & catalog ----------
 
-route('adminSettingsGet', ['GET'], 'admin/settings', async (req) => {
+route('adminSettingsGet', ['GET'], 'staff/settings', async (req) => {
   requireAdmin(req);
   const c = await getContainers();
   invalidateCatalog();
   return getSettings(c);
 });
 
-route('adminSettingsPut', ['PUT'], 'admin/settings', async (req) => {
+route('adminSettingsPut', ['PUT'], 'staff/settings', async (req) => {
   requireAdmin(req);
   const input = await readBody(req, settingsInput);
   const c = await getContainers();
@@ -190,7 +190,7 @@ function slug(name: string) {
   );
 }
 
-route('adminCatalogList', ['GET'], 'admin/catalog/{kind}', async (req) => {
+route('adminCatalogList', ['GET'], 'staff/catalog/{kind}', async (req) => {
   requireAdmin(req);
   const kind = kindOf(req.params.kind);
   const c = await getContainers();
@@ -204,7 +204,7 @@ route('adminCatalogList', ['GET'], 'admin/catalog/{kind}', async (req) => {
   return kind === 'service' ? catalog.services : catalog.addOns;
 });
 
-route('adminCatalogCreate', ['POST'], 'admin/catalog/{kind}', async (req) => {
+route('adminCatalogCreate', ['POST'], 'staff/catalog/{kind}', async (req) => {
   requireAdmin(req);
   const kind = kindOf(req.params.kind);
   const c = await getContainers();
@@ -227,7 +227,7 @@ route('adminCatalogCreate', ['POST'], 'admin/catalog/{kind}', async (req) => {
   return created(doc);
 });
 
-route('adminCatalogUpdate', ['PUT'], 'admin/catalog/{kind}/{id}', async (req) => {
+route('adminCatalogUpdate', ['PUT'], 'staff/catalog/{kind}/{id}', async (req) => {
   requireAdmin(req);
   const kind = kindOf(req.params.kind);
   const id = req.params.id;
@@ -248,7 +248,7 @@ route('adminCatalogUpdate', ['PUT'], 'admin/catalog/{kind}/{id}', async (req) =>
   return doc;
 });
 
-route('adminCatalogDelete', ['DELETE'], 'admin/catalog/{kind}/{id}', async (req) => {
+route('adminCatalogDelete', ['DELETE'], 'staff/catalog/{kind}/{id}', async (req) => {
   requireAdmin(req);
   const kind = kindOf(req.params.kind);
   const c = await getContainers();
@@ -259,7 +259,7 @@ route('adminCatalogDelete', ['DELETE'], 'admin/catalog/{kind}/{id}', async (req)
 
 // ---------- clients ----------
 
-route('adminClients', ['GET'], 'admin/clients', async (req): Promise<ClientSummary[]> => {
+route('adminClients', ['GET'], 'staff/clients', async (req): Promise<ClientSummary[]> => {
   requireAdmin(req);
   const c = await getContainers();
   const q = (query(req, 'q') ?? '').toLowerCase();
@@ -284,7 +284,7 @@ route('adminClients', ['GET'], 'admin/clients', async (req): Promise<ClientSumma
     .map((profile) => ({ profile, petCount: petsByOwner.get(profile.ownerId)?.length ?? 0 }));
 });
 
-route('adminClient', ['GET'], 'admin/clients/{ownerId}', async (req): Promise<ClientDetail> => {
+route('adminClient', ['GET'], 'staff/clients/{ownerId}', async (req): Promise<ClientDetail> => {
   requireAdmin(req);
   const c = await getContainers();
   const profile = await getProfile(c, req.params.ownerId);
@@ -293,7 +293,7 @@ route('adminClient', ['GET'], 'admin/clients/{ownerId}', async (req): Promise<Cl
   return { profile: clean(profile), pets, appointments };
 });
 
-route('adminClientUpdate', ['PATCH'], 'admin/clients/{ownerId}', async (req) => {
+route('adminClientUpdate', ['PATCH'], 'staff/clients/{ownerId}', async (req) => {
   requireAdmin(req);
   const { noShowCount } = await readBody(req, clientInput);
   const c = await getContainers();
@@ -306,7 +306,7 @@ route('adminClientUpdate', ['PATCH'], 'admin/clients/{ownerId}', async (req) => 
 
 // ---------- reporting ----------
 
-route('adminStats', ['GET'], 'admin/stats', async (req): Promise<AdminStats> => {
+route('adminStats', ['GET'], 'staff/stats', async (req): Promise<AdminStats> => {
   requireAdmin(req);
   const c = await getContainers();
   const settings = await getSettings(c);
@@ -364,7 +364,7 @@ route('adminStats', ['GET'], 'admin/stats', async (req): Promise<AdminStats> => 
   };
 });
 
-route('adminExport', ['GET'], 'admin/export', async (req) => {
+route('adminExport', ['GET'], 'staff/export', async (req) => {
   requireAdmin(req);
   const c = await getContainers();
   const settings = await getSettings(c);
