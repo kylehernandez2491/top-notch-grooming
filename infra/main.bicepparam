@@ -5,7 +5,7 @@ using './main.bicep'
 //   export JOBS_KEY="$(openssl rand -hex 24)"
 //   export ENTRA_CLIENT_ID="..."  ENTRA_CLIENT_SECRET="..."   (optional on the first run)
 param appName = 'topnotch'
-param swaLocation = 'centralus'
+param swaLocation = 'eastasia'
 param shopTimeZone = 'Asia/Manila'
 param adminEmails = readEnvironmentVariable('ADMIN_EMAILS')
 param jobsKey = readEnvironmentVariable('JOBS_KEY')
