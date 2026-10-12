@@ -102,17 +102,7 @@ async function excuseNoShows() {
             <dd>{{ TEMPERAMENT_LABELS[pet.temperament] }}</dd>
             <template v-if="pet.groomingPreferences"><dt>Preferences</dt><dd>{{ pet.groomingPreferences }}</dd></template>
             <template v-if="pet.behaviorNotes"><dt>Behavior</dt><dd>{{ pet.behaviorNotes }}</dd></template>
-            <template v-if="pet.allergies"><dt>Allergies</dt><dd class="warn">{{ pet.allergies }}</dd></template>
-            <template v-if="pet.medicalNotes"><dt>Medical</dt><dd class="warn">{{ pet.medicalNotes }}</dd></template>
             <template v-if="pet.coat"><dt>Coat</dt><dd>{{ pet.coat }}</dd></template>
-            <dt>Vaccinations</dt>
-            <dd>
-              <span v-if="!pet.vaccinations.length" class="warn">None on file</span>
-              <span v-for="v in pet.vaccinations" :key="v.name" class="vax" :class="{ warn: v.expiresOn < catalog.today }">
-                {{ v.name }} until {{ shortDay(v.expiresOn) }}
-              </span>
-            </dd>
-            <template v-if="pet.vetName"><dt>Vet</dt><dd>{{ pet.vetName }} {{ pet.vetPhone }}</dd></template>
           </dl>
         </article>
         <p v-if="!detail.pets.length" class="panel muted">No pets on file yet.</p>

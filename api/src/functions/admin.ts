@@ -318,7 +318,7 @@ route('adminClient', ['GET'], 'staff/clients/{clientKey}', async (req): Promise<
   const pets = new Map<string, BookedPet>();
   for (const a of byNewest) {
     if (!pets.has(a.petId)) {
-      pets.set(a.petId, a.pet ? { ...a.pet, id: a.petId } : { id: a.petId, name: a.petName, species: a.petSpecies, breed: a.petBreed, size: a.petSize, temperament: 'friendly', vaccinations: [] });
+      pets.set(a.petId, a.pet ? { ...a.pet, id: a.petId } : { id: a.petId, name: a.petName, species: a.petSpecies, breed: a.petBreed, size: a.petSize, temperament: 'friendly' });
     }
   }
   return {

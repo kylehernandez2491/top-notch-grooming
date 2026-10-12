@@ -5,13 +5,11 @@ import type { PetInput } from '@/api/client';
 import ContactFields from '@/components/ContactFields.vue';
 import PetForm from '@/components/PetForm.vue';
 import { useAccount } from '@/stores/account';
-import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 import { contactErrors, trimContact, type ContactDetails } from '@/utils/contact';
 
 /** First visit on a device: no account to create, just details saved here for next time. */
 const account = useAccount();
-const catalog = useCatalog();
 const ui = useUi();
 const route = useRoute();
 const router = useRouter();
@@ -81,11 +79,10 @@ function savePet(input: PetInput) {
     <template v-else>
       <header class="stack">
         <h1>Tell us about your pet</h1>
-        <p class="muted">A dog's size sets the price and time. Notes and vaccination dates help the groomer prepare.</p>
+        <p class="muted">A dog's size sets the price and time. Notes help the groomer prepare.</p>
       </header>
       <PetForm
         submit-label="Save and book"
-        :vaccination-policy="catalog.settings?.policies.vaccination"
         @submit="savePet"
         @cancel="router.replace('/dashboard')"
       />

@@ -33,7 +33,6 @@ export interface DayHours {
 
 export interface ShopPolicies {
   cancellation: string;
-  vaccination: string;
   lateArrival: string;
 }
 
@@ -60,7 +59,6 @@ export interface BusinessSettings {
   maxUpcomingPerOwner: number;
   /** Block online booking after this many no-shows. 0 = never block. */
   noShowLimit: number;
-  requireVaccinations: boolean;
   weeklyHours: Record<Weekday, DayHours | null>;
   policies: ShopPolicies;
   /** Version of the built-in service menu last applied to this database (see upgradeMenu). */
@@ -119,12 +117,6 @@ export interface Closure {
 
 export type CatalogDoc = BusinessSettings | Service | AddOn | Closure;
 
-export interface Vaccination {
-  name: string;
-  /** YYYY-MM-DD */
-  expiresOn: string;
-}
-
 /** What the groomer needs to know about a pet. Sent with each booking and copied onto the appointment. */
 export interface PetDetails {
   name: string;
@@ -137,11 +129,6 @@ export interface PetDetails {
   coat?: string;
   temperament: Temperament;
   behaviorNotes?: string;
-  medicalNotes?: string;
-  allergies?: string;
-  vetName?: string;
-  vetPhone?: string;
-  vaccinations: Vaccination[];
   groomingPreferences?: string;
 }
 
@@ -227,7 +214,7 @@ export interface Appointment {
   petSpecies: Species;
   petSize: PetSize;
   petBreed: string;
-  /** Allergies, temperament and medical flags copied at booking time for the groomer. */
+  /** Temperament and behaviour flags copied at booking time for the groomer. */
   petAlerts: string[];
   /** The pet's full profile as the owner entered it when booking (no photo). */
   pet?: PetDetails;

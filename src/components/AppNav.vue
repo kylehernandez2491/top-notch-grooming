@@ -59,7 +59,10 @@ function active(item: NavItem) {
     <div class="topbar-inner">
       <RouterLink :to="account.hasProfile ? '/dashboard' : '/'" class="brand">
         <img class="brand-logo" src="/brand/logo.png" srcset="/brand/logo@2x.png 2x" width="40" height="40" alt="" />
-        <span class="brand-name">{{ catalog.settings?.shopName ?? 'Top Notch Dog Grooming' }}</span>
+        <span class="brand-text">
+          <span class="brand-name">{{ catalog.settings?.shopName ?? 'Top Notch Dog Grooming' }}</span>
+          <span class="brand-branch">Talavera Branch</span>
+        </span>
       </RouterLink>
 
       <nav class="desk-nav" aria-label="Main">
@@ -145,10 +148,34 @@ function active(item: NavItem) {
   flex: none;
 }
 
-.brand-name {
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.brand-name,
+.brand-branch {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Location under the shop name: smaller, lighter and muted so the name stays the focus. */
+.brand-branch {
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+@media (min-width: 900px) {
+  .brand-branch {
+    font-size: 0.75rem;
+  }
 }
 
 .desk-nav {

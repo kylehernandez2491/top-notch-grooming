@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { BookedPet, BookingResult, ClientDetail, WaitlistWindow } from '@shared/types';
 import {
-  expiredVaccinations,
   formatDuration,
   formatMoney,
   formatPriceRange,
@@ -116,16 +115,6 @@ watch(
   },
 );
 
-const vaccineProblem = computed(() => {
-  if (!catalog.settings?.requireVaccinations || !pet.value) return '';
-  if (!pet.value.vaccinations.some((v) => /rabies/i.test(v.name))) return `Add ${pet.value.name}'s rabies vaccination date to book.`;
-  if (day.value) {
-    const expired = expiredVaccinations(pet.value.vaccinations, day.value);
-    if (expired.length) return `${pet.value.name}'s ${expired.map((v) => v.name).join(', ')} expires before ${shortDay(day.value)}.`;
-  }
-  return '';
-});
-
 const repeatDates = computed(() =>
   repeat.value.enabled && day.value
     ? Array.from({ length: repeat.value.count }, (_, i) => addDays(day.value!, i * repeat.value.everyWeeks * 7))
@@ -135,7 +124,7 @@ const repeatDates = computed(() =>
 const canContinue = computed(() => {
   if (step.value === 1) return !!pet.value;
   if (step.value === 2) return !!service.value;
-  if (step.value === 3) return !!day.value && !!time.value && !vaccineProblem.value;
+  if (step.value === 3) return !!day.value && !!time.value;
   return true;
 });
 
@@ -395,10 +384,6 @@ function bookAnother() {
           <button type="button" class="btn btn-sm" @click="jumpToNext"><Icon name="sparkle" :size="16" /> Next opening</button>
         </div>
         <p class="muted small">{{ service.name }} for {{ pet.name }} takes about {{ formatDuration(duration) }}.</p>
-        <p v-if="vaccineProblem" class="alert">
-          <Icon name="alert" :size="18" />
-          <span>{{ vaccineProblem }} <RouterLink v-if="!staff" :to="`/pets/${pet.id}`">Update {{ pet.name }}'s profile</RouterLink></span>
-        </p>
         <p v-if="availability.error.value" class="alert">{{ availability.error.value }}</p>
         <div class="time-layout">
           <div class="panel">

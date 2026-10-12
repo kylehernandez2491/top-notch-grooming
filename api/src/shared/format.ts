@@ -155,8 +155,3 @@ export function partOfDay(hhmm: string): 'morning' | 'afternoon' | 'evening' {
   if (m < 17 * 60) return 'afternoon';
   return 'evening';
 }
-
-/** Vaccinations that will have expired by the given day (YYYY-MM-DD compares lexically). */
-export function expiredVaccinations(vaccinations: { name: string; expiresOn: string }[], onDay: string) {
-  return vaccinations.filter((v) => v.expiresOn && v.expiresOn < onDay);
-}

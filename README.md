@@ -30,7 +30,7 @@ Basic Grooming includes bath and blow dry, nail cut, ear cleaning, sanitary clea
 - **Repeat visits:** book every N weeks for several visits in one go. Dates that are taken are skipped and listed.
 - **Waitlist** for full days, by any time, morning or afternoon. When someone cancels, everyone waiting gets an email straight away.
 - **Change time or cancel** without calling. Late changes inside the policy window are flagged, not blocked.
-- **Pet profiles** (saved on the device; each booking sends a copy to the groomer, without the photo): camera photo (resized on the phone), breed, a required **Dog size** dropdown (cats have no size), weight in kg, temperament, allergies, medical and behaviour notes, grooming preferences, vet, and vaccination dates with expiry warnings. Booking is blocked if rabies is missing or expires first (configurable).
+- **Pet profiles** (saved on the device; each booking sends a copy to the groomer, without the photo): camera photo (resized on the phone), breed, a required **Dog size** dropdown (cats have no size), weight in kg, temperament, behaviour notes and grooming preferences.
 - **Dashboard:** next visit with countdown, **Add to calendar** (`.ics` served as `text/calendar` so iOS and Android open it natively), Google Calendar link, directions, share sheet, one-tap **Book again**, and the groomer's suggested next date.
 - **Report cards and reviews** after each visit (1–5 stars plus comment).
 - **Emails:** confirmation with calendar attachment, change, cancellation (with `METHOD:CANCEL` .ics), 24-hour reminder (opt-out), waitlist opening, and report card ready.
@@ -38,11 +38,11 @@ Basic Grooming includes bath and blow dry, nail cut, ear cleaning, sanitary clea
 - **Installable PWA:** home-screen icon, works offline for viewing saved visits, offers a one-tap update, follows dark mode, respects reduced motion.
 
 ### For the groomer (staff portal, `admin` role)
-- **Today:** agenda with pet alerts (allergies, nervous or reactive), owner notes, tap-to-call, one-tap **Check in → Start groom → Mark done**, no-show, free gaps for walk-ins, auto-refresh, swipe between days.
+- **Today:** agenda with pet alerts (nervous, reactive or senior, plus behaviour notes), owner notes, tap-to-call, one-tap **Check in → Start groom → Mark done**, no-show, free gaps for walk-ins, auto-refresh, swipe between days.
 - **Week board:** time grid with breaks, closures and status colours. On phones it starts at today.
 - **Appointment detail:** amount actually charged, private staff notes, report card (emails the owner), move, cancel with a reason (emails the owner), and "text ready for pick-up".
 - **Clients:** built from bookings and grouped by contact number (`0917 123 4567` and `+63 917 123 4567` are one client). Search by owner, phone or pet name; contact number, email and address as given on the latest booking; pet profiles; history; lifetime spend; no-show count and **Excuse**; **Book for client** for phone bookings from a client's history, which bypasses notice and horizon rules but never overlaps and shows up on the client's own phone.
-- **Shop settings:** services (what's included, plus duration, price, optional "up to" price and a note for each dog size), extras that can be tied to one service and certain sizes (the face design to start), weekly hours with breaks, booking rules (start-time step, clean-up buffer, minimum notice, horizon, cancellation window, daily cap, per-client cap, no-show pause, vaccination requirement), shop details, policy text, and time off (full or partial days).
+- **Shop settings:** services (what's included, plus duration, price, optional "up to" price and a note for each dog size), extras that can be tied to one service and certain sizes (the face design to start), weekly hours with breaks, booking rules (start-time step, clean-up buffer, minimum notice, horizon, cancellation window, daily cap, per-client cap, no-show pause), shop details, policy text, and time off (full or partial days).
 - **Reports:** revenue, average ticket, no-show rate, late cancellations, new clients, rating, visits by weekday and hour, top services, and **CSV export** (formula-injection safe).
 
 ---

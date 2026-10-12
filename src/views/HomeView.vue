@@ -135,8 +135,7 @@ const serviceBookHref = (s: Service) => `/book?serviceId=${s.id}`;
       </div>
       <div class="panel stack">
         <h2 class="info-title">Before you book</h2>
-        <p class="small">{{ catalog.settings.policies.vaccination }}</p>
-        <p class="small muted">{{ catalog.settings.policies.cancellation }}</p>
+        <p class="small">{{ catalog.settings.policies.cancellation }}</p>
       </div>
     </section>
   </div>

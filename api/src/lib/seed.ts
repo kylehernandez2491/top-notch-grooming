@@ -19,7 +19,6 @@ export function defaultSettings(): BusinessSettings {
     maxAppointmentsPerDay: 8,
     maxUpcomingPerOwner: 6,
     noShowLimit: 3,
-    requireVaccinations: true,
     weeklyHours: {
       mon: null,
       tue: workday,
@@ -33,8 +32,6 @@ export function defaultSettings(): BusinessSettings {
     policies: {
       cancellation:
         'Please cancel or reschedule at least 24 hours ahead so another pup can have your spot. Late cancellations are noted on your account.',
-      vaccination:
-        'Dogs need a current rabies vaccination (and we recommend DHPP and Bordetella). Cats need a current rabies vaccination. Please keep the dates on your pet profile up to date.',
       lateArrival:
         'Running late? Call us. Arrivals more than 15 minutes late may need to be rescheduled so we can stay on time for the next client.',
     },

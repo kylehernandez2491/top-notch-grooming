@@ -5,13 +5,11 @@ import type { Pet } from '@shared/types';
 import type { PetInput } from '@/api/client';
 import PetForm from '@/components/PetForm.vue';
 import { useAccount } from '@/stores/account';
-import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 
 const route = useRoute();
 const router = useRouter();
 const account = useAccount();
-const catalog = useCatalog();
 const ui = useUi();
 
 const id = computed(() => route.params.id as string | undefined);
@@ -70,7 +68,6 @@ async function remove() {
       :key="pet?.id ?? 'new'"
       :initial="pet"
       :submit-label="id ? 'Save changes' : 'Add pet'"
-      :vaccination-policy="catalog.settings?.policies.vaccination"
       @submit="save"
       @cancel="back()"
     />

@@ -424,10 +424,6 @@ const upcomingClosures = computed(() => closures.value.filter((c) => c.date >= c
             <input id="noshow" v-model.number="settings.noShowLimit" class="input" type="number" min="0" max="20" />
           </div>
         </div>
-        <label class="check">
-          <input v-model="settings.requireVaccinations" type="checkbox" />
-          <span>Require a current rabies vaccination date to book</span>
-        </label>
       </section>
 
       <section class="panel stack-lg">
@@ -449,7 +445,6 @@ const upcomingClosures = computed(() => closures.value.filter((c) => c.date >= c
       <section class="panel stack-lg">
         <h2 class="section-title">Policies shown to clients</h2>
         <div class="field"><label for="pol-c">Cancellations</label><textarea id="pol-c" v-model="settings.policies.cancellation" class="textarea" /></div>
-        <div class="field"><label for="pol-v">Vaccinations</label><textarea id="pol-v" v-model="settings.policies.vaccination" class="textarea" /></div>
         <div class="field"><label for="pol-l">Late arrivals</label><textarea id="pol-l" v-model="settings.policies.lateArrival" class="textarea" /></div>
       </section>
 

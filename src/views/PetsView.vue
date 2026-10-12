@@ -4,11 +4,9 @@ import { sizePhrase } from '@shared/format';
 import Icon from '@/components/Icon.vue';
 import PetAvatar from '@/components/PetAvatar.vue';
 import { useAccount } from '@/stores/account';
-import { useCatalog } from '@/stores/catalog';
 import { ageFrom, shortDay } from '@/utils/dates';
 
 const account = useAccount();
-const catalog = useCatalog();
 const loading = ref(true);
 const error = ref('');
 
@@ -21,9 +19,6 @@ onMounted(async () => {
     loading.value = false;
   }
 });
-
-const expiredCount = (petId: string) =>
-  account.petById(petId)?.vaccinations.filter((v) => v.expiresOn < catalog.today).length ?? 0;
 </script>
 
 <template>
@@ -45,7 +40,6 @@ const expiredCount = (petId: string) =>
               {{ pet.breed || (pet.species === 'dog' ? 'Dog' : 'Cat') }}, {{ sizePhrase(pet.size, pet.species) }}<template v-if="ageFrom(pet.birthday)">, {{ ageFrom(pet.birthday) }}</template>
             </span>
             <span v-if="account.lastVisitFor(pet.id)" class="small">Last groom {{ shortDay(account.lastVisitFor(pet.id)!.day) }}</span>
-            <span v-if="expiredCount(pet.id)" class="small warn"><Icon name="alert" :size="14" /> Vaccination date needs updating</span>
           </span>
         </RouterLink>
         <RouterLink :to="{ path: '/book', query: { petId: pet.id } }" class="btn btn-sm">Book</RouterLink>

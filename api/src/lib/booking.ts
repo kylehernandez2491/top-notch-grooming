@@ -14,7 +14,7 @@ import type {
   StatusEvent,
 } from '../shared/types';
 import { ACTIVE_STATUSES } from '../shared/types';
-import { addMinutes, addOnApplies, expiredVaccinations, serviceDuration, servicePrice, servicePriceMax, TEMPERAMENT_LABELS, toMinutes } from '../shared/format';
+import { addMinutes, addOnApplies, serviceDuration, servicePrice, servicePriceMax, TEMPERAMENT_LABELS, toMinutes } from '../shared/format';
 import { buildLockMap, dayAvailability, lockBlocks, lockId } from './availability';
 import { Containers } from './cosmos';
 import { clientKeyFor, newManageToken } from './device';
@@ -239,8 +239,6 @@ export function petAlerts(pet: PetDetails): string[] {
   if (pet.temperament === 'nervous' || pet.temperament === 'reactive' || pet.temperament === 'senior') {
     alerts.push(TEMPERAMENT_LABELS[pet.temperament]);
   }
-  if (pet.allergies) alerts.push(`Allergies: ${pet.allergies}`);
-  if (pet.medicalNotes) alerts.push(`Medical: ${pet.medicalNotes}`);
   if (pet.behaviorNotes) alerts.push(`Behavior: ${pet.behaviorNotes}`);
   return alerts;
 }
@@ -382,13 +380,6 @@ export async function book(c: Containers, input: BookingInput): Promise<BookingR
   for (const [index, day] of dates.entries()) {
     const isFirst = index === 0;
     try {
-      if (settings.requireVaccinations && expiredVaccinations(pet.vaccinations, day).length) {
-        const names = expiredVaccinations(pet.vaccinations, day).map((v) => v.name).join(', ');
-        throw conflict(`${pet.name}'s ${names} vaccination expires before ${day}. Please update the pet profile.`, 'vaccination');
-      }
-      if (settings.requireVaccinations && !pet.vaccinations.some((v) => /rabies/i.test(v.name))) {
-        throw conflict(`Please add ${pet.name}'s rabies vaccination date to the pet profile before booking.`, 'vaccination');
-      }
       const appointment = buildAppointment({
         day,
         time: request.time,

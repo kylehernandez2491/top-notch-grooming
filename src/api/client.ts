@@ -31,7 +31,7 @@ export class ApiError extends Error {
     super(message);
   }
 
-  /** Field-level messages from server-side validation, keyed by path ("name", "vaccinations.0.expiresOn"). */
+  /** Field-level messages from server-side validation, keyed by path ("name", "owner.phone"). */
   fieldErrors(): Record<string, string> {
     return Object.fromEntries((this.details ?? []).map((d) => [d.path, d.message]));
   }

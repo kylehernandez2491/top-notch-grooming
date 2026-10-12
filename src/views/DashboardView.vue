@@ -38,14 +38,6 @@ const countdown = computed(() => {
   return 'very soon';
 });
 
-/** Vaccinations expired or expiring in the next 30 days. */
-const vaccineAlerts = computed(() => {
-  const soon = addDays(catalog.today, 30);
-  return account.pets.flatMap((pet) =>
-    pet.vaccinations.filter((v) => v.expiresOn <= soon).map((v) => ({ pet, vaccine: v, expired: v.expiresOn < catalog.today })),
-  );
-});
-
 const toReview = computed(() =>
   account.past.filter((a) => a.status === 'completed' && !a.review && a.day >= addDays(catalog.today, -30)).slice(0, 2),
 );
@@ -94,14 +86,6 @@ function suggestedDay(appointmentDay: string, weeks?: number) {
         <p class="muted">Open times are shown as a calendar. It takes about a minute.</p>
         <RouterLink to="/book" class="btn btn-primary">Book a groom</RouterLink>
       </div>
-    </section>
-
-    <section v-for="alert in vaccineAlerts" :key="alert.pet.id + alert.vaccine.name" class="note">
-      <Icon name="alert" :size="20" />
-      <span>
-        {{ alert.pet.name }}'s {{ alert.vaccine.name }} vaccination {{ alert.expired ? 'expired' : 'expires' }} on {{ shortDay(alert.vaccine.expiresOn) }}.
-        <RouterLink :to="`/pets/${alert.pet.id}`">Update the date</RouterLink>
-      </span>
     </section>
 
     <div class="dash-grid">

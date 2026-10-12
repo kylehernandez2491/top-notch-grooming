@@ -77,7 +77,7 @@ const owner: OwnerDetails = {
   displayName: 'Sam', phone: '0917 123 4567', email: 'a@b.c', address: '12 Mabini Street', emailReminders: true,
 };
 const pet: BookedPet = {
-  id: 'pet-00000001', name: 'Biscuit', species: 'dog', breed: 'Corgi', size: 'medium', temperament: 'friendly', vaccinations: [],
+  id: 'pet-00000001', name: 'Biscuit', species: 'dog', breed: 'Corgi', size: 'medium', temperament: 'friendly',
 };
 const DAY = '2026-10-13';
 
@@ -209,7 +209,7 @@ describe('transactional booking', () => {
 describe('pet validation', () => {
   it('requires one of the four dog sizes and stores cats as one size', async () => {
     const { petInput } = await import('../src/lib/validation');
-    const base = { id: 'b1f2c3d4-0000-4000-8000-000000000001', name: 'Koda', species: 'dog', size: 'husky_chow', vaccinations: [] };
+    const base = { id: 'b1f2c3d4-0000-4000-8000-000000000001', name: 'Koda', species: 'dog', size: 'husky_chow' };
     expect(petInput.safeParse(base).success).toBe(true);
     expect(petInput.safeParse({ ...base, size: 'xlarge' }).success).toBe(false);
     expect(petInput.safeParse({ ...base, size: undefined }).success).toBe(false);
@@ -238,14 +238,23 @@ describe('client details', () => {
 
   it('copies the owner and pet onto the booking, without the photo', async () => {
     const { petInput } = await import('../src/lib/validation');
-    const sent = petInput.parse({ ...pet, allergies: 'Oatmeal', photo: 'data:image/jpeg;base64,AAAA' });
+    // Older devices may still send health and vaccination details; they are not kept.
+    const sent = petInput.parse({
+      ...pet,
+      behaviorNotes: 'Hates the dryer',
+      allergies: 'Oatmeal',
+      vaccinations: [{ name: 'Rabies', expiresOn: '2027-01-01' }],
+      photo: 'data:image/jpeg;base64,AAAA',
+    });
     const a = buildAppointment({
       day: DAY, time: '09:00', pet: sent, owner: { ...owner, phone: '+63 917 123 4567' }, ownerId: 'd-device',
       service, addOns: [], settings, bookedBy: 'owner',
     });
     expect(a).toMatchObject({ ownerId: 'd-device', clientKey: '09171234567', ownerAddress: owner.address, emailReminders: true, petId: pet.id });
-    expect(a.pet).toMatchObject({ name: 'Biscuit', allergies: 'Oatmeal' });
+    expect(a.pet).toMatchObject({ name: 'Biscuit', behaviorNotes: 'Hates the dryer' });
     expect(a.pet).not.toHaveProperty('photo');
+    expect(a.pet).not.toHaveProperty('allergies');
+    expect(a.pet).not.toHaveProperty('vaccinations');
     expect(a.manageToken).toHaveLength(32);
     expect(appt('09:00').manageToken).not.toBe(a.manageToken);
   });

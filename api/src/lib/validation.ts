@@ -35,11 +35,6 @@ export const petInput = z.object({
   coat: optionalText(60),
   temperament: z.enum(['calm', 'friendly', 'nervous', 'reactive', 'senior']).default('friendly'),
   behaviorNotes: optionalText(600),
-  medicalNotes: optionalText(600),
-  allergies: optionalText(200),
-  vetName: optionalText(80),
-  vetPhone: optionalText(30),
-  vaccinations: z.array(z.object({ name: text(40).min(1), expiresOn: day })).max(12).default([]),
   groomingPreferences: optionalText(600),
 })
   // Cats have one flat price, so their size is always stored as small.
@@ -127,9 +122,8 @@ export const settingsInput = z.object({
   maxAppointmentsPerDay: z.number().int().min(0).max(50),
   maxUpcomingPerOwner: z.number().int().min(0).max(50),
   noShowLimit: z.number().int().min(0).max(20),
-  requireVaccinations: z.boolean(),
   weeklyHours: z.object({ mon: dayHours, tue: dayHours, wed: dayHours, thu: dayHours, fri: dayHours, sat: dayHours, sun: dayHours }),
-  policies: z.object({ cancellation: text(800), vaccination: text(800), lateArrival: text(800) }),
+  policies: z.object({ cancellation: text(800), lateArrival: text(800) }),
 });
 
 export const serviceInput = z.object({

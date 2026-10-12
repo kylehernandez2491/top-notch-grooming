@@ -13,7 +13,6 @@ const props = defineProps<{
   saving?: boolean;
   submitLabel: string;
   errors?: Record<string, string>;
-  vaccinationPolicy?: string;
 }>();
 const emit = defineEmits<{ submit: [input: PetInput]; cancel: [] }>();
 
@@ -29,26 +28,13 @@ const form = reactive({
   coat: props.initial?.coat ?? '',
   temperament: (props.initial?.temperament ?? 'friendly') as Temperament,
   behaviorNotes: props.initial?.behaviorNotes ?? '',
-  medicalNotes: props.initial?.medicalNotes ?? '',
-  allergies: props.initial?.allergies ?? '',
-  vetName: props.initial?.vetName ?? '',
-  vetPhone: props.initial?.vetPhone ?? '',
   groomingPreferences: props.initial?.groomingPreferences ?? '',
-  vaccinations: (props.initial?.vaccinations ?? []).map((v) => ({ ...v })),
 });
 
 const photo = ref<string | undefined>(props.initial?.photo);
 const photoChanged = ref(false);
 const photoError = ref('');
 const triedSubmit = ref(false);
-
-const suggestions: Record<Species, string[]> = {
-  dog: ['Rabies', 'DHPP', 'Bordetella'],
-  cat: ['Rabies', 'FVRCP'],
-};
-const missingSuggestions = computed(() =>
-  suggestions[form.species].filter((name) => !form.vaccinations.some((v) => v.name.toLowerCase() === name.toLowerCase())),
-);
 
 const isDog = computed(() => form.species === 'dog');
 const sizeHint = computed(() => (form.size ? SIZE_HINTS[form.size] : "Your dog's size sets the price and how long the groom takes."));
@@ -78,10 +64,6 @@ function removePhoto() {
   photoChanged.value = true;
 }
 
-function addVaccination(name = '') {
-  form.vaccinations.push({ name, expiresOn: '' });
-}
-
 function submit() {
   triedSubmit.value = true;
   if (isDog.value && !form.size) {
@@ -100,12 +82,7 @@ function submit() {
     coat: form.coat || undefined,
     temperament: form.temperament,
     behaviorNotes: form.behaviorNotes || undefined,
-    medicalNotes: form.medicalNotes || undefined,
-    allergies: form.allergies || undefined,
-    vetName: form.vetName || undefined,
-    vetPhone: form.vetPhone || undefined,
     groomingPreferences: form.groomingPreferences || undefined,
-    vaccinations: form.vaccinations.filter((v) => v.name.trim() && v.expiresOn),
     // undefined keeps the current photo; null removes it
     photo: photoChanged.value ? (photo.value ?? null) : undefined,
   });
@@ -231,56 +208,6 @@ const err = (path: string) =>
       </div>
     </fieldset>
 
-    <fieldset class="panel stack-lg">
-      <legend class="legend">Health and vaccinations</legend>
-      <p v-if="vaccinationPolicy" class="note small">
-        <Icon name="alert" :size="18" />
-        <span>{{ vaccinationPolicy }}</span>
-      </p>
-
-      <div v-for="(v, i) in form.vaccinations" :key="i" class="vax-row">
-        <div class="field vax-name">
-          <label :for="`vax-name-${i}`">Vaccine</label>
-          <input :id="`vax-name-${i}`" v-model="v.name" class="input" list="vax-names" />
-        </div>
-        <div class="field vax-date">
-          <label :for="`vax-exp-${i}`">Valid until</label>
-          <input :id="`vax-exp-${i}`" v-model="v.expiresOn" class="input" type="date" :aria-invalid="!!err(`vaccinations.${i}.expiresOn`)" />
-        </div>
-        <button type="button" class="icon-btn vax-remove" :aria-label="`Remove ${v.name || 'vaccination'}`" @click="form.vaccinations.splice(i, 1)">
-          <Icon name="trash" :size="18" />
-        </button>
-      </div>
-      <datalist id="vax-names">
-        <option v-for="name in suggestions[form.species]" :key="name" :value="name" />
-      </datalist>
-      <div class="chips">
-        <button v-for="name in missingSuggestions" :key="name" type="button" class="chip" @click="addVaccination(name)">
-          <Icon name="plus" :size="16" /> {{ name }}
-        </button>
-        <button type="button" class="chip" @click="addVaccination()"><Icon name="plus" :size="16" /> Other</button>
-      </div>
-
-      <div class="field">
-        <label for="pet-allergies">Allergies</label>
-        <input id="pet-allergies" v-model="form.allergies" class="input" placeholder="e.g. oatmeal shampoo, chicken treats" />
-      </div>
-      <div class="field">
-        <label for="pet-medical">Medical notes</label>
-        <textarea id="pet-medical" v-model="form.medicalNotes" class="textarea" placeholder="Hip dysplasia, recent surgery, skin conditions…" />
-      </div>
-      <div class="grid-2">
-        <div class="field">
-          <label for="pet-vet">Vet clinic</label>
-          <input id="pet-vet" v-model="form.vetName" class="input" autocomplete="off" />
-        </div>
-        <div class="field">
-          <label for="pet-vet-phone">Vet phone</label>
-          <input id="pet-vet-phone" v-model="form.vetPhone" class="input" type="tel" inputmode="tel" autocomplete="off" />
-        </div>
-      </div>
-    </fieldset>
-
     <div class="form-actions">
       <button type="button" class="btn" @click="emit('cancel')">Cancel</button>
       <button type="submit" class="btn btn-primary" :disabled="saving || !form.name.trim()">
@@ -318,40 +245,6 @@ fieldset {
 .photo-btn {
   cursor: pointer;
   width: fit-content;
-}
-
-.vax-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
-  grid-template-areas:
-    'name remove'
-    'date date';
-  gap: 10px;
-  align-items: end;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--grout);
-}
-
-.vax-name {
-  grid-area: name;
-}
-
-.vax-date {
-  grid-area: date;
-}
-
-.vax-remove {
-  grid-area: remove;
-  margin-bottom: 2px;
-}
-
-@media (min-width: 560px) {
-  .vax-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px;
-    grid-template-areas: 'name date remove';
-    padding-bottom: 0;
-    border-bottom: 0;
-  }
 }
 
 .form-actions {
