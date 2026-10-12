@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ApiError, type PetInput } from '@/api/client';
+import type { PetInput } from '@/api/client';
 import ContactFields from '@/components/ContactFields.vue';
 import PetForm from '@/components/PetForm.vue';
 import { useAccount } from '@/stores/account';
 import { useCatalog } from '@/stores/catalog';
-import { useSession } from '@/stores/session';
 import { useUi } from '@/stores/ui';
 import { contactErrors, trimContact, type ContactDetails } from '@/utils/contact';
 
-const session = useSession();
+/** First visit on a device: no account to create, just details saved here for next time. */
 const account = useAccount();
 const catalog = useCatalog();
 const ui = useUi();
@@ -18,59 +17,40 @@ const route = useRoute();
 const router = useRouter();
 
 const step = ref<'you' | 'pet'>('you');
-const saving = ref(false);
 const error = ref('');
-const petErrors = ref<Record<string, string>>({});
 const contact = ref<ContactDetails>({
-  // New profiles start with the email prefix as a placeholder name; ask for the real one.
-  displayName: session.profile?.onboarded ? session.profile.displayName : '',
-  phone: session.profile?.phone ?? '',
-  email: session.profile?.email || session.principal?.userDetails || '',
-  address: session.profile?.address ?? '',
+  displayName: account.profile?.displayName ?? '',
+  phone: account.profile?.phone ?? '',
+  email: account.profile?.email ?? '',
+  address: account.profile?.address ?? '',
 });
-const emailReminders = ref(true);
+const emailReminders = ref(account.profile?.emailReminders ?? true);
 const triedSave = ref(false);
-const serverErrors = ref<Record<string, string>>({});
-const contactProblems = computed(() => ({ ...(triedSave.value ? contactErrors(contact.value) : {}), ...serverErrors.value }));
+const contactProblems = computed(() => (triedSave.value ? contactErrors(contact.value) : {}));
 
-const redirect = () => (typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard');
+const redirect = () => (typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/') ? route.query.redirect : '/dashboard');
 
-async function saveYou() {
+function saveYou() {
   error.value = '';
-  serverErrors.value = {};
   triedSave.value = true;
   if (Object.keys(contactErrors(contact.value)).length) return;
-  saving.value = true;
   try {
-    await session.saveProfile({
-      ...trimContact(contact.value),
-      emailReminders: emailReminders.value,
-      emailMarketing: false,
-    });
-    const pets = await account.loadPets();
-    if (pets.length) router.replace(redirect());
+    account.saveProfile({ ...account.profile, ...trimContact(contact.value), emailReminders: emailReminders.value });
+    if (account.pets.length) router.replace(redirect());
     else step.value = 'pet';
   } catch (err) {
-    if (err instanceof ApiError) serverErrors.value = err.fieldErrors();
     error.value = (err as Error).message;
-  } finally {
-    saving.value = false;
   }
 }
 
-async function savePet(input: PetInput) {
-  saving.value = true;
-  petErrors.value = {};
+function savePet(input: PetInput) {
   try {
-    const pet = await account.savePet(input);
+    const pet = account.savePet(input);
     ui.toast(`${pet.name} is all set.`, 'success');
     const target = redirect();
     router.replace(target.startsWith('/book') ? target : { path: '/book', query: { petId: pet.id } });
   } catch (err) {
-    if (err instanceof ApiError) petErrors.value = err.fieldErrors();
     ui.toast((err as Error).message, 'error');
-  } finally {
-    saving.value = false;
   }
 }
 </script>
@@ -80,7 +60,10 @@ async function savePet(input: PetInput) {
     <template v-if="step === 'you'">
       <header class="stack">
         <h1>Welcome! Let's get you set up.</h1>
-        <p class="muted">Two quick steps: your contact details, then your pet. You'll only do this once.</p>
+        <p class="muted">
+          Two quick steps: your contact details, then your pet. No account or password needed. We save them on this device so next
+          time you can book in a couple of taps.
+        </p>
       </header>
       <form class="panel stack-lg" novalidate @submit.prevent="saveYou">
         <h2 class="form-title">Your details</h2>
@@ -89,10 +72,9 @@ async function savePet(input: PetInput) {
           <input v-model="emailReminders" type="checkbox" />
           <span>Email me a reminder the day before each appointment</span>
         </label>
+        <p class="small muted">Using a shared or borrowed phone? You can clear your details any time under "Me".</p>
         <p v-if="error" class="alert">{{ error }}</p>
-        <button type="submit" class="btn btn-primary" :disabled="saving">
-          {{ saving ? 'Saving…' : 'Continue' }}
-        </button>
+        <button type="submit" class="btn btn-primary">Continue</button>
       </form>
     </template>
 
@@ -103,8 +85,6 @@ async function savePet(input: PetInput) {
       </header>
       <PetForm
         submit-label="Save and book"
-        :saving="saving"
-        :errors="petErrors"
         :vaccination-policy="catalog.settings?.policies.vaccination"
         @submit="savePet"
         @cancel="router.replace('/dashboard')"

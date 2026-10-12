@@ -126,7 +126,7 @@ async function saveReport() {
 
       <section class="panel stack">
         <h2 class="section-title">Owner</h2>
-        <RouterLink :to="`/admin/clients/${a.ownerId}`" class="owner-link"><strong>{{ a.ownerName }}</strong></RouterLink>
+        <RouterLink :to="`/admin/clients/${encodeURIComponent(a.clientKey)}`" class="owner-link"><strong>{{ a.ownerName }}</strong></RouterLink>
         <div class="row">
           <a v-if="a.ownerPhone" class="btn btn-sm" :href="telUrl(a.ownerPhone)"><Icon name="phone" :size="18" /> Call</a>
           <a v-if="smsUrl" class="btn btn-sm" :href="`${smsUrl}?body=${encodeURIComponent(`Hi! ${a.petName} is ready for pick-up.`)}`">

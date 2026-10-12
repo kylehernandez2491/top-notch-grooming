@@ -1,16 +1,5 @@
 import type { Container } from '@azure/cosmos';
-import type {
-  AddOn,
-  Appointment,
-  BusinessSettings,
-  Closure,
-  OwnerProfile,
-  Pet,
-  RatingSummary,
-  Service,
-  WaitlistEntry,
-} from '../shared/types';
-import { ClientPrincipal, principalEmail } from './auth';
+import type { AddOn, Appointment, BusinessSettings, Closure, RatingSummary, Service, WaitlistEntry } from '../shared/types';
 import { Containers, clean } from './cosmos';
 import { notFound } from './http';
 import { defaultSettings } from './seed';
@@ -89,55 +78,6 @@ export async function ratingSummary(c: Containers): Promise<RatingSummary | unde
   return value;
 }
 
-// ---------- owners & pets ----------
-
-export async function getProfile(c: Containers, ownerId: string): Promise<WithEtag<OwnerProfile> | undefined> {
-  const { resource } = await c.owners.item(ownerId, ownerId).read<OwnerProfile>();
-  return resource;
-}
-
-/** Creates the profile on first sign-in using the email claim from the identity provider. */
-export async function ensureProfile(c: Containers, principal: ClientPrincipal): Promise<OwnerProfile> {
-  const existing = await getProfile(c, principal.userId);
-  if (existing) return clean(existing);
-  const now = new Date().toISOString();
-  const email = principalEmail(principal);
-  const profile: OwnerProfile = {
-    id: principal.userId,
-    type: 'profile',
-    ownerId: principal.userId,
-    email,
-    displayName: email ? email.split('@')[0] : '',
-    emailReminders: true,
-    emailMarketing: false,
-    onboarded: false,
-    noShowCount: 0,
-    createdAt: now,
-    updatedAt: now,
-  };
-  const { resource } = await c.owners.items.create(profile);
-  return clean(resource ?? profile);
-}
-
-export async function listPets(c: Containers, ownerId: string, includeArchived = false): Promise<Pet[]> {
-  const rows = await queryAll<Pet>(
-    c.owners,
-    'SELECT * FROM c WHERE c.ownerId = @o AND c.type = "pet"',
-    [{ name: '@o', value: ownerId }],
-    ownerId,
-  );
-  return rows
-    .filter((p) => includeArchived || !p.archived)
-    .map(clean)
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export async function getPet(c: Containers, ownerId: string, petId: string): Promise<WithEtag<Pet>> {
-  const { resource } = await c.owners.item(petId, ownerId).read<Pet>();
-  if (!resource || resource.type !== 'pet' || resource.archived) throw notFound('Pet not found.');
-  return resource;
-}
-
 // ---------- bookings ----------
 
 /**
@@ -152,6 +92,7 @@ export async function findAppointment(c: Containers, id: string): Promise<WithEt
   return rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
 }
 
+/** Everything booked from one device (its hashed device key). */
 export async function listOwnerAppointments(c: Containers, ownerId: string): Promise<Appointment[]> {
   const rows = await queryAll<Appointment>(
     c.bookings,
@@ -159,6 +100,35 @@ export async function listOwnerAppointments(c: Containers, ownerId: string): Pro
     [{ name: '@o', value: ownerId }],
   );
   return dedupe(rows).map(clean).sort((a, b) => a.startUtc.localeCompare(b.startUtc));
+}
+
+/** One client's visits: booked under their contact number, or from the device they're booking on. */
+export async function listClientAppointments(c: Containers, clientKey: string, ownerId?: string): Promise<Appointment[]> {
+  const rows = await queryAll<Appointment>(
+    c.bookings,
+    'SELECT * FROM c WHERE c.type = "appointment" AND (c.clientKey = @k OR c.ownerId = @o)',
+    [
+      { name: '@k', value: clientKey },
+      { name: '@o', value: ownerId ?? clientKey },
+    ],
+  );
+  return dedupe(rows).map(clean).sort((a, b) => a.startUtc.localeCompare(b.startUtc));
+}
+
+/** The few fields the client list and reports need, across every appointment ever booked. */
+export type ClientRow = Pick<
+  Appointment,
+  'id' | 'clientKey' | 'ownerName' | 'ownerEmail' | 'ownerPhone' | 'ownerAddress' | 'ownerEmergencyContact' | 'emailReminders' | 'petId' | 'petName' | 'status' | 'noShowExcused' | 'createdAt' | 'updatedAt'
+>;
+
+export async function listClientRows(c: Containers): Promise<ClientRow[]> {
+  const rows = await queryAll<ClientRow>(
+    c.bookings,
+    `SELECT c.id, c.clientKey, c.ownerName, c.ownerEmail, c.ownerPhone, c.ownerAddress, c.ownerEmergencyContact,
+            c.emailReminders, c.petId, c.petName, c.status, c.noShowExcused, c.createdAt, c.updatedAt
+       FROM c WHERE c.type = "appointment"`,
+  );
+  return dedupe(rows);
 }
 
 export async function listAppointmentsInRange(c: Containers, from: string, to: string): Promise<Appointment[]> {

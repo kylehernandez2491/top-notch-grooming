@@ -14,7 +14,7 @@ const error = ref('');
 
 onMounted(async () => {
   try {
-    await Promise.all([account.loadPets(true), account.loadAppointments()]);
+    await account.loadAppointments(); // for "Last groom"; the pets themselves are saved on this device
   } catch (err) {
     error.value = (err as Error).message;
   } finally {

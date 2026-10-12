@@ -70,10 +70,7 @@ const catOnly = (s: Service) => !s.species.includes('dog');
             </dd>
           </div>
         </dl>
-        <template v-if="bookHref">
-          <a v-if="bookHref(service).startsWith('/.auth')" :href="bookHref(service)" class="btn btn-sm btn-dark svc-book">Book {{ service.name }}</a>
-          <RouterLink v-else :to="bookHref(service)" class="btn btn-sm btn-dark svc-book">Book {{ service.name }}</RouterLink>
-        </template>
+        <RouterLink v-if="bookHref" :to="bookHref(service)" class="btn btn-sm btn-dark svc-book">Book {{ service.name }}</RouterLink>
       </div>
     </article>
 

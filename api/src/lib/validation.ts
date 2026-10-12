@@ -19,7 +19,12 @@ export const phoneNumber = text(30).refine((v) => {
   return /^[0-9+()\s.-]+$/.test(v) && digits.length >= 7 && digits.length <= 15;
 }, 'Enter a valid contact number, e.g. 0917 123 4567');
 
+/** Pets get their id on the owner's device (crypto.randomUUID). */
+const petId = z.string().regex(/^[A-Za-z0-9-]{8,64}$/, 'Unknown pet');
+
+/** A pet as sent with a booking. The photo stays on the device. */
 export const petInput = z.object({
+  id: petId,
   name: text(40).min(1, 'Name is required'),
   species,
   breed: text(60).default(''),
@@ -36,16 +41,11 @@ export const petInput = z.object({
   vetPhone: optionalText(30),
   vaccinations: z.array(z.object({ name: text(40).min(1), expiresOn: day })).max(12).default([]),
   groomingPreferences: optionalText(600),
-  photo: z
-    .string()
-    .max(300_000, 'Photo is too large')
-    .refine((v) => /^data:image\/(jpeg|png|webp);base64,/.test(v), 'Photo must be an image')
-    .nullable()
-    .optional(),
 })
   // Cats have one flat price, so their size is always stored as small.
   .transform((p) => (p.species === 'cat' ? { ...p, size: 'small' as const } : p));
 
+/** The owner's details, saved on their device and sent with every booking. */
 export const profileInput = z.object({
   displayName: text(60).min(1, 'Name is required'),
   phone: phoneNumber,
@@ -53,32 +53,39 @@ export const profileInput = z.object({
   address: text(200).min(5, 'Enter your address'),
   emergencyContact: optionalText(120),
   emailReminders: z.boolean(),
-  emailMarketing: z.boolean(),
 });
 
 export const bookingInput = z.object({
-  petId: id,
+  owner: profileInput,
+  pet: petInput,
   serviceId: id,
   addOnIds: z.array(id).max(10).default([]),
   day,
   time,
   notes: optionalText(500),
   repeat: z.object({ everyWeeks: z.number().int().min(1).max(16), count: z.number().int().min(2).max(12) }).optional(),
-  ownerId: id.optional(),
 });
+
+/** Staff booking for a client from their history; ownerId is that client's device so it shows up there. */
+export const staffBookingInput = bookingInput.extend({ ownerId: id.optional() });
 
 export const rescheduleInput = z.object({ day, time });
 export const cancelInput = z.object({ reason: optionalText(300) });
 export const notesInput = z.object({ notes: optionalText(500) });
 export const reviewInput = z.object({ rating: z.number().int().min(1).max(5), comment: optionalText(1000) });
-export const waitlistInput = z.object({ day, petId: id, serviceId: id, window: z.enum(['any', 'morning', 'afternoon']) });
+export const waitlistInput = z.object({
+  day,
+  serviceId: id,
+  window: z.enum(['any', 'morning', 'afternoon']),
+  owner: profileInput.pick({ displayName: true, email: true, phone: true }),
+  pet: z.object({ id: petId, name: text(40).min(1) }),
+});
 
 export const statusInput = z.object({
   status: z.enum(['booked', 'checked-in', 'in-progress', 'completed', 'cancelled', 'no-show']),
   note: optionalText(300),
   finalPrice: price.optional(),
 });
-export const clientInput = z.object({ noShowCount: z.number().int().min(0).max(100) });
 export const staffNotesInput = z.object({ staffNotes: optionalText(1000) });
 export const reportCardInput = z.object({
   behavior: text(300),

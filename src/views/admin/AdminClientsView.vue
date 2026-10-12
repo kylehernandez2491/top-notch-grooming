@@ -39,21 +39,21 @@ watch(q, () => {
     <p v-if="error" class="alert">{{ error }}</p>
     <div v-if="loading && !clients.length" class="skeleton" style="height: 200px" />
     <ul v-else-if="clients.length" class="divider-list panel list">
-      <li v-for="c in clients" :key="c.profile.ownerId">
-        <RouterLink :to="`/admin/clients/${c.profile.ownerId}`" class="client">
+      <li v-for="c in clients" :key="c.clientKey">
+        <RouterLink :to="`/admin/clients/${encodeURIComponent(c.clientKey)}`" class="client">
           <span class="stack client-text">
-            <strong>{{ c.profile.displayName || c.profile.email }}</strong>
-            <span class="muted small">{{ c.profile.phone || c.profile.email }}</span>
+            <strong>{{ c.owner.displayName || c.owner.email }}</strong>
+            <span class="muted small">{{ c.owner.phone || c.owner.email }}</span>
           </span>
           <span class="row client-meta">
-            <span class="badge">{{ c.petCount }} {{ c.petCount === 1 ? 'pet' : 'pets' }}</span>
-            <span v-if="c.profile.noShowCount" class="badge no-show">{{ c.profile.noShowCount }} no-show</span>
+            <span class="badge">{{ c.petNames.length }} {{ c.petNames.length === 1 ? 'pet' : 'pets' }}</span>
+            <span v-if="c.noShows" class="badge no-show">{{ c.noShows }} no-show</span>
             <Icon name="chevron-right" :size="18" />
           </span>
         </RouterLink>
       </li>
     </ul>
-    <p v-else class="panel muted">{{ q ? 'No clients match that search.' : 'Clients appear here after they sign up.' }}</p>
+    <p v-else class="panel muted">{{ q ? 'No clients match that search.' : 'Clients appear here after their first booking.' }}</p>
   </div>
 </template>
 

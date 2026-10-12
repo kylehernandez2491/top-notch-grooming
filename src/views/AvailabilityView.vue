@@ -8,11 +8,9 @@ import SlotPicker from '@/components/SlotPicker.vue';
 import TileCalendar from '@/components/TileCalendar.vue';
 import { useAvailability, type AvailabilityParams } from '@/composables/useAvailability';
 import { useCatalog } from '@/stores/catalog';
-import { useSession } from '@/stores/session';
 import { addDays, monthOf, shortDay } from '@/utils/dates';
 
 const catalog = useCatalog();
-const session = useSession();
 const route = useRoute();
 const router = useRouter();
 
@@ -56,12 +54,7 @@ async function jumpToNext() {
 }
 
 function book() {
-  const target = router.resolve({
-    path: '/book',
-    query: { serviceId: serviceId.value, day: selectedDay.value, time: selectedTime.value },
-  }).fullPath;
-  if (session.isLoggedIn) router.push(target);
-  else window.location.href = session.loginUrl(target);
+  router.push({ path: '/book', query: { serviceId: serviceId.value, day: selectedDay.value, time: selectedTime.value } });
 }
 </script>
 
@@ -121,7 +114,7 @@ function book() {
       <span class="small">
         <strong>{{ shortDay(selectedDay) }}, {{ formatTime12(selectedTime) }}</strong>
       </span>
-      <button type="button" class="btn btn-primary" @click="book">{{ session.isLoggedIn ? 'Book this time' : 'Sign in to book' }}</button>
+      <button type="button" class="btn btn-primary" @click="book">Book this time</button>
     </div>
   </div>
 </template>

@@ -1,79 +1,60 @@
-import type { Appointment, BookingResult, OwnerProfile } from '../shared/types';
+import type { Appointment, BookingResult } from '../shared/types';
 import { buildIcs } from '../shared/ics';
-import { cancelAppointment, loadAccessibleAppointment, rescheduleAppointment } from '../lib/actions';
-import { isAdmin, requireUser } from '../lib/auth';
+import { cancelAppointment, loadOwnedAppointment, rescheduleAppointment } from '../lib/actions';
 import { book, saveAppointment } from '../lib/booking';
 import { clean, getContainers } from '../lib/cosmos';
-import { sendEmail, templates } from '../lib/email';
-import { baseUrl, conflict, created, forbidden, notFound, raw, readBody, route } from '../lib/http';
-import { ensureProfile, getPet, getProfile, getSettings, invalidateCatalog, listOwnerAppointments } from '../lib/repo';
+import { deviceOwnerId, ensureDevice, forgetDeviceCookie } from '../lib/device';
+import { manageUrl, sendEmail, templates } from '../lib/email';
+import { baseUrl, conflict, raw, readBody, route } from '../lib/http';
+import { getSettings, invalidateCatalog, listOwnerAppointments } from '../lib/repo';
 import { bookingInput, cancelInput, notesInput, rescheduleInput, reviewInput } from '../lib/validation';
 
+/** This device's bookings. A device that has never booked has none. */
 route('appointmentsList', ['GET'], 'appointments', async (req) => {
-  const principal = requireUser(req);
+  const ownerId = deviceOwnerId(req);
+  if (!ownerId) return [];
   const c = await getContainers();
-  return listOwnerAppointments(c, principal.userId);
+  return listOwnerAppointments(c, ownerId);
 });
 
-/** Book (owners), or book on behalf of a client (staff, with ownerId). Supports recurring series. */
+/** Book online. The owner's details and pet come from their device; supports recurring series. */
 route('appointmentsCreate', ['POST'], 'appointments', async (req, ctx) => {
-  const principal = requireUser(req);
   const input = await readBody(req, bookingInput);
+  const device = ensureDevice(req);
   const c = await getContainers();
   const settings = await getSettings(c);
 
-  const staff = !!input.ownerId && input.ownerId !== principal.userId;
-  if (staff && !isAdmin(principal)) throw forbidden('Only staff can book for another client.');
-
-  let profile: OwnerProfile;
-  if (staff) {
-    const found = await getProfile(c, input.ownerId!);
-    if (!found) throw notFound('Client not found.');
-    profile = clean(found);
-  } else {
-    profile = await ensureProfile(c, principal);
-    if (!profile.onboarded) throw conflict('Please finish your profile before booking.', 'not_onboarded');
-  }
-  const pet = clean(await getPet(c, profile.ownerId, input.petId));
-
-  const result: BookingResult = await book(c, {
-    request: input,
-    profile,
-    pet,
-    settings,
-    actor: { kind: staff ? 'staff' : 'owner' },
-  });
+  const result: BookingResult = await book(c, { request: input, ownerId: device.ownerId, settings, actor: { kind: 'owner' } });
 
   const appUrl = baseUrl(req);
   for (const appointment of result.appointments) {
     await sendEmail(ctx, templates.confirmed(appointment, settings, appUrl));
   }
-  if (!staff && result.appointments[0]) {
+  if (result.appointments[0]) {
     await sendEmail(ctx, templates.staffNotice('booked', result.appointments[0], settings, appUrl));
   }
-  return created(result);
+  return raw({ status: 201, jsonBody: result, cookies: [device.cookie] });
 });
 
+/** Owner (device or ?t= link) or staff. */
 route('appointmentsGet', ['GET'], 'appointments/{id}', async (req) => {
-  const principal = requireUser(req);
   const c = await getContainers();
-  return clean(await loadAccessibleAppointment(c, principal, req.params.id));
+  return clean(await loadOwnedAppointment(c, req, req.params.id, true));
 });
 
 /** Calendar file served with text/calendar so iOS/Android open "Add to calendar" directly. */
 route('appointmentsIcs', ['GET'], 'appointments/{id}/ics', async (req) => {
-  const principal = requireUser(req);
   const c = await getContainers();
-  const [appointment, settings] = await Promise.all([loadAccessibleAppointment(c, principal, req.params.id), getSettings(c)]);
+  const [appointment, settings] = await Promise.all([loadOwnedAppointment(c, req, req.params.id, true), getSettings(c)]);
   const appUrl = baseUrl(req);
   const ics = buildIcs({
     uid: `${appointment.id}@topnotchgrooming`,
     startUtc: appointment.startUtc,
     endUtc: appointment.endUtc,
     summary: `${appointment.petName}: ${appointment.serviceName} at ${settings.shopName}`,
-    description: `Manage your booking: ${appUrl}/appointments/${appointment.id}`,
+    description: `Manage your booking: ${manageUrl(appointment, appUrl)}`,
     location: settings.address,
-    url: `${appUrl}/appointments/${appointment.id}`,
+    url: manageUrl(appointment, appUrl),
     method: appointment.status === 'cancelled' ? 'CANCEL' : 'PUBLISH',
   });
   return raw({
@@ -87,29 +68,23 @@ route('appointmentsIcs', ['GET'], 'appointments/{id}/ics', async (req) => {
 });
 
 route('appointmentsCancel', ['POST'], 'appointments/{id}/cancel', async (req, ctx) => {
-  const principal = requireUser(req);
   const { reason } = await readBody(req, cancelInput);
   const c = await getContainers();
-  const [appointment, settings] = await Promise.all([loadAccessibleAppointment(c, principal, req.params.id), getSettings(c)]);
-  if (appointment.ownerId !== principal.userId) throw forbidden('Use the staff portal to cancel client bookings.');
+  const [appointment, settings] = await Promise.all([loadOwnedAppointment(c, req, req.params.id), getSettings(c)]);
   return cancelAppointment(c, ctx, req, appointment, settings, 'owner', reason);
 });
 
 route('appointmentsReschedule', ['POST'], 'appointments/{id}/reschedule', async (req, ctx) => {
-  const principal = requireUser(req);
   const target = await readBody(req, rescheduleInput);
   const c = await getContainers();
-  const [appointment, settings] = await Promise.all([loadAccessibleAppointment(c, principal, req.params.id), getSettings(c)]);
-  if (appointment.ownerId !== principal.userId) throw forbidden('Use the staff portal to move client bookings.');
+  const [appointment, settings] = await Promise.all([loadOwnedAppointment(c, req, req.params.id), getSettings(c)]);
   return rescheduleAppointment(c, ctx, req, appointment, settings, target, 'owner');
 });
 
 route('appointmentsNotes', ['PUT'], 'appointments/{id}/notes', async (req) => {
-  const principal = requireUser(req);
   const { notes } = await readBody(req, notesInput);
   const c = await getContainers();
-  const appointment = await loadAccessibleAppointment(c, principal, req.params.id);
-  if (appointment.ownerId !== principal.userId) throw forbidden();
+  const appointment = await loadOwnedAppointment(c, req, req.params.id);
   if (appointment.status !== 'booked') throw conflict('Notes can only be changed before drop-off.', 'not_editable');
   const now = new Date().toISOString();
   const next: Appointment = {
@@ -122,11 +97,9 @@ route('appointmentsNotes', ['PUT'], 'appointments/{id}/notes', async (req) => {
 });
 
 route('appointmentsReview', ['POST'], 'appointments/{id}/review', async (req) => {
-  const principal = requireUser(req);
   const review = await readBody(req, reviewInput);
   const c = await getContainers();
-  const appointment = await loadAccessibleAppointment(c, principal, req.params.id);
-  if (appointment.ownerId !== principal.userId) throw forbidden();
+  const appointment = await loadOwnedAppointment(c, req, req.params.id);
   if (appointment.status !== 'completed') throw conflict('You can review a visit once it is completed.', 'not_completed');
   if (appointment.review) throw conflict('You already reviewed this visit — thank you!', 'already_reviewed');
   const next: Appointment = {
@@ -138,3 +111,6 @@ route('appointmentsReview', ['POST'], 'appointments/{id}/review', async (req) =>
   invalidateCatalog(); // refresh the public rating summary
   return saved;
 });
+
+/** "Forget me on this device": drops the device key. Bookings stay; their email links still work. */
+route('deviceForget', ['POST'], 'device/forget', async () => raw({ status: 204, cookies: [forgetDeviceCookie()] }));

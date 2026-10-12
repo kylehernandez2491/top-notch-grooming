@@ -5,7 +5,7 @@ import { saveAppointment } from '../lib/booking';
 import { clean, getContainers } from '../lib/cosmos';
 import { sendEmail, templates } from '../lib/email';
 import { baseUrl, HttpError, route } from '../lib/http';
-import { getProfile, getSettings, queryAll } from '../lib/repo';
+import { getSettings, queryAll } from '../lib/repo';
 
 function assertJobKey(req: HttpRequest) {
   const expected = process.env.JOBS_KEY ?? '';
@@ -44,9 +44,7 @@ route('jobsReminders', ['POST'], 'jobs/reminders', async (req, ctx) => {
   let sent = 0;
   let skipped = 0;
   for (const appointment of due) {
-    const profile = await getProfile(c, appointment.ownerId);
-    const wantsEmail = profile?.emailReminders !== false;
-    if (wantsEmail) {
+    if (appointment.emailReminders !== false) {
       await sendEmail(ctx, templates.reminder(appointment, settings, appUrl));
       sent++;
     } else {

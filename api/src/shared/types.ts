@@ -125,10 +125,8 @@ export interface Vaccination {
   expiresOn: string;
 }
 
-export interface Pet {
-  id: string;
-  type: 'pet';
-  ownerId: string;
+/** What the groomer needs to know about a pet. Sent with each booking and copied onto the appointment. */
+export interface PetDetails {
   name: string;
   species: Species;
   breed: string;
@@ -145,29 +143,30 @@ export interface Pet {
   vetPhone?: string;
   vaccinations: Vaccination[];
   groomingPreferences?: string;
-  /** Small JPEG data URL, resized in the browser before upload. */
+}
+
+/** A pet as sent with a booking: its details plus the id the owner's device gave it. */
+export interface BookedPet extends PetDetails {
+  id: string;
+}
+
+/** A pet saved on the owner's device. The photo never leaves the device. */
+export interface Pet extends BookedPet {
+  /** Small JPEG data URL, resized in the browser. */
   photo?: string;
-  archived?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface OwnerProfile {
-  id: string;
-  type: 'profile';
-  ownerId: string;
-  email: string;
+/** The owner's contact details, saved on their device and sent with each booking. */
+export interface OwnerDetails {
   displayName: string;
-  phone?: string;
+  phone: string;
+  email: string;
   /** Home address, entered by the owner. */
-  address?: string;
+  address: string;
   emergencyContact?: string;
   emailReminders: boolean;
-  emailMarketing: boolean;
-  onboarded: boolean;
-  noShowCount: number;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export type AppointmentStatus = 'booked' | 'checked-in' | 'in-progress' | 'completed' | 'cancelled' | 'no-show';
@@ -212,10 +211,17 @@ export interface Appointment {
   endTime: string;
   startUtc: string;
   endUtc: string;
+  /** Hash of the booking device's key (see api/src/lib/device.ts). Lets that device list and manage it. */
   ownerId: string;
+  /** The owner's contact number reduced to digits; groups one client's visits in the staff portal. */
+  clientKey: string;
   ownerName: string;
   ownerEmail: string;
   ownerPhone?: string;
+  ownerAddress?: string;
+  ownerEmergencyContact?: string;
+  /** The owner's choice at booking time; the reminder job reads it. */
+  emailReminders: boolean;
   petId: string;
   petName: string;
   petSpecies: Species;
@@ -223,6 +229,10 @@ export interface Appointment {
   petBreed: string;
   /** Allergies, temperament and medical flags copied at booking time for the groomer. */
   petAlerts: string[];
+  /** The pet's full profile as the owner entered it when booking (no photo). */
+  pet?: PetDetails;
+  /** Secret in the email links: opens this appointment on any device. */
+  manageToken: string;
   serviceId: string;
   serviceName: string;
   addOns: BookedAddOn[];
@@ -240,6 +250,8 @@ export interface Appointment {
   locks: string[];
   seriesId?: string;
   bookedBy: 'owner' | 'staff';
+  /** Staff forgave this no-show, so it no longer counts toward the online-booking pause. */
+  noShowExcused?: boolean;
   lateCancellation?: boolean;
   cancelReason?: string;
   reminderSentAt?: string;
@@ -258,6 +270,7 @@ export interface WaitlistEntry {
   ownerId: string;
   ownerName: string;
   ownerEmail: string;
+  ownerPhone?: string;
   petId: string;
   petName: string;
   serviceId: string;
@@ -309,22 +322,28 @@ export interface PublicCatalog {
   today: string;
 }
 
-export interface MeResponse {
-  profile: OwnerProfile;
-  roles: string[];
-  isAdmin: boolean;
-}
-
 export interface BookingRequest {
-  petId: string;
+  owner: OwnerDetails;
+  pet: BookedPet;
   serviceId: string;
   addOnIds: string[];
   day: string;
   time: string;
   notes?: string;
   repeat?: { everyWeeks: number; count: number };
-  /** Staff only: book on behalf of this owner. */
+}
+
+/** Staff booking for a client from their history. ownerId keeps it visible on the client's own device. */
+export interface StaffBookingRequest extends BookingRequest {
   ownerId?: string;
+}
+
+export interface WaitlistRequest {
+  day: string;
+  serviceId: string;
+  window: WaitlistWindow;
+  owner: Pick<OwnerDetails, 'displayName' | 'email' | 'phone'>;
+  pet: Pick<BookedPet, 'id' | 'name'>;
 }
 
 export interface BookingResult {
@@ -340,14 +359,20 @@ export interface AgendaResponse {
   closures: Closure[];
 }
 
+/** A client as the staff portal sees them: built from their bookings, newest details first. */
 export interface ClientSummary {
-  profile: OwnerProfile;
-  petCount: number;
+  clientKey: string;
+  owner: OwnerDetails;
+  petNames: string[];
+  /** Count of no-shows that still count toward the online-booking pause. */
+  noShows: number;
+  firstVisit: string;
 }
 
-export interface ClientDetail {
-  profile: OwnerProfile;
-  pets: Pet[];
+export interface ClientDetail extends ClientSummary {
+  /** The device the client booked from most recently; staff bookings use it so they show up there too. */
+  ownerId: string;
+  pets: BookedPet[];
   appointments: Appointment[];
 }
 

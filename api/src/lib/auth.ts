@@ -9,8 +9,10 @@ export interface ClientPrincipal {
 }
 
 /**
- * SWA injects x-ms-client-principal (base64 JSON) on every request to a managed function and
- * strips any copy the browser tries to send, so it can be trusted here.
+ * Only staff sign in, with Static Web Apps' built-in Microsoft or GitHub login. The admin role comes
+ * from an invitation in the Azure portal (Static Web App → Role management). SWA injects
+ * x-ms-client-principal (base64 JSON) on every request to a managed function and strips any copy the
+ * browser tries to send, so it can be trusted here.
  */
 export function getPrincipal(req: HttpRequest): ClientPrincipal | null {
   const header = req.headers.get('x-ms-client-principal');
@@ -29,31 +31,13 @@ export function getPrincipal(req: HttpRequest): ClientPrincipal | null {
   }
 }
 
-export function requireUser(req: HttpRequest): ClientPrincipal {
-  const principal = getPrincipal(req);
-  if (!principal || !principal.userRoles.includes('authenticated')) throw unauthorized();
-  return principal;
-}
-
 export function isAdmin(principal: ClientPrincipal | null): boolean {
   return !!principal && principal.userRoles.includes('admin');
 }
 
 export function requireAdmin(req: HttpRequest): ClientPrincipal {
-  const principal = requireUser(req);
+  const principal = getPrincipal(req);
+  if (!principal) throw unauthorized('Staff sign-in required.');
   if (!isAdmin(principal)) throw forbidden('Staff access only.');
   return principal;
-}
-
-/** Comma-separated ADMIN_EMAILS app setting — the source of truth for who gets the admin role. */
-export function adminEmails(): string[] {
-  return (process.env.ADMIN_EMAILS ?? '')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-/** Best-effort email from the principal (userDetails is the email claim with the provided config). */
-export function principalEmail(principal: ClientPrincipal): string {
-  return principal.userDetails.includes('@') ? principal.userDetails.toLowerCase() : '';
 }

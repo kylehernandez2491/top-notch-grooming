@@ -9,12 +9,10 @@ import Icon from '@/components/Icon.vue';
 import ServiceMenu from '@/components/ServiceMenu.vue';
 import StarRating from '@/components/StarRating.vue';
 import { useCatalog } from '@/stores/catalog';
-import { useSession } from '@/stores/session';
 import { addDays, dayNumber, weekdayShort } from '@/utils/dates';
 import { mapsUrl, telUrl } from '@/utils/device';
 
 const catalog = useCatalog();
-const session = useSession();
 const week = ref<AvailabilityResponse | null>(null);
 const weekError = ref(false);
 
@@ -40,8 +38,7 @@ function fill(d: AvailabilityResponse['days'][number]) {
   return 1 - d.slots.length / d.capacity;
 }
 
-const bookHref = computed(() => session.loginUrl('/book'));
-const serviceBookHref = (s: Service) => (session.isLoggedIn ? `/book?serviceId=${s.id}` : session.loginUrl(`/book?serviceId=${s.id}`));
+const serviceBookHref = (s: Service) => `/book?serviceId=${s.id}`;
 </script>
 
 <template>
@@ -62,7 +59,7 @@ const serviceBookHref = (s: Service) => (session.isLoggedIn ? `/book?serviceId=$
           before.
         </p>
         <div class="row">
-          <a :href="bookHref" class="btn hero-btn">Sign in to book</a>
+          <RouterLink to="/book" class="btn hero-btn">Book now</RouterLink>
           <RouterLink to="/availability" class="btn hero-btn-alt">See all open times</RouterLink>
         </div>
         <p v-if="catalog.data?.rating" class="row small hero-rating">

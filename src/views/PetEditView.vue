@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { Pet } from '@shared/types';
-import { api, ApiError, type PetInput } from '@/api/client';
+import type { PetInput } from '@/api/client';
 import PetForm from '@/components/PetForm.vue';
 import { useAccount } from '@/stores/account';
 import { useCatalog } from '@/stores/catalog';
@@ -15,22 +15,9 @@ const catalog = useCatalog();
 const ui = useUi();
 
 const id = computed(() => route.params.id as string | undefined);
-const pet = ref<Pet | undefined>();
-const loading = ref(!!id.value);
-const saving = ref(false);
-const errors = ref<Record<string, string>>({});
-const loadError = ref('');
-
-onMounted(async () => {
-  if (!id.value) return;
-  try {
-    pet.value = account.petById(id.value) ?? (await api.pet(id.value));
-  } catch (err) {
-    loadError.value = (err as Error).message;
-  } finally {
-    loading.value = false;
-  }
-});
+/** Pets are saved on this device, so there's nothing to load. */
+const pet = computed(() => (id.value ? account.petById(id.value) : undefined));
+const loadError = computed(() => (id.value && !pet.value ? "That pet isn't saved on this device." : ''));
 
 function back(saved?: Pet) {
   const ret = typeof route.query.return === 'string' && route.query.return.startsWith('/') ? route.query.return : undefined;
@@ -41,18 +28,13 @@ function back(saved?: Pet) {
   else router.replace('/pets');
 }
 
-async function save(input: PetInput) {
-  saving.value = true;
-  errors.value = {};
+function save(input: PetInput) {
   try {
-    const saved = await account.savePet(input, id.value);
+    const saved = account.savePet(input, id.value);
     ui.toast(`${saved.name} saved.`, 'success');
     back(saved);
   } catch (err) {
-    if (err instanceof ApiError) errors.value = err.fieldErrors();
     ui.toast((err as Error).message, 'error');
-  } finally {
-    saving.value = false;
   }
 }
 
@@ -60,7 +42,7 @@ async function remove() {
   if (!pet.value) return;
   const { confirmed } = await ui.confirm({
     title: `Remove ${pet.value.name}?`,
-    message: 'Their past visits stay on your account. You can add them again any time.',
+    message: 'Their past visits stay with the shop. You can add them again any time.',
     confirmLabel: 'Remove pet',
     cancelLabel: 'Keep',
     danger: true,
@@ -83,13 +65,10 @@ async function remove() {
       <button v-if="pet" type="button" class="btn btn-sm btn-danger" @click="remove">Remove</button>
     </header>
     <p v-if="loadError" class="alert">{{ loadError }}</p>
-    <div v-if="loading" class="skeleton" style="height: 320px" />
     <PetForm
-      v-else-if="!id || pet"
+      v-else
       :key="pet?.id ?? 'new'"
       :initial="pet"
-      :saving="saving"
-      :errors="errors"
       :submit-label="id ? 'Save changes' : 'Add pet'"
       :vaccination-policy="catalog.settings?.policies.vaccination"
       @submit="save"

@@ -8,6 +8,8 @@ export interface AvailabilityParams {
   size: PetSize;
   addOns: string[];
   exclude?: string;
+  /** Manage token from an email link: proves the owner may treat `exclude` as their own time. */
+  token?: string;
   staff?: boolean;
 }
 

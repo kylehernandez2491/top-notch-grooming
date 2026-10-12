@@ -8,11 +8,9 @@ import Icon from '@/components/Icon.vue';
 import PetAvatar from '@/components/PetAvatar.vue';
 import { useAccount } from '@/stores/account';
 import { useCatalog } from '@/stores/catalog';
-import { useSession } from '@/stores/session';
 import { addDays, longDay, relativeDay, shortDay } from '@/utils/dates';
 import { mapsUrl } from '@/utils/device';
 
-const session = useSession();
 const account = useAccount();
 const catalog = useCatalog();
 const loading = ref(true);
@@ -20,7 +18,7 @@ const error = ref('');
 
 onMounted(async () => {
   try {
-    await Promise.all([account.loadPets(true), account.loadAppointments(true), account.loadWaitlist(true)]);
+    await Promise.all([account.loadAppointments(true), account.loadWaitlist(true)]);
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
@@ -62,7 +60,7 @@ function suggestedDay(appointmentDay: string, weeks?: number) {
 <template>
   <div class="page">
     <header class="stack">
-      <h1>Hi {{ session.firstName || 'there' }}</h1>
+      <h1>Hi {{ account.firstName || 'there' }}</h1>
     </header>
 
     <p v-if="error" class="alert"><Icon name="alert" :size="18" /> {{ error }}</p>

@@ -44,7 +44,7 @@ export default defineConfig({
             options: { cacheName: 'public-api', expiration: { maxEntries: 60, maxAgeSeconds: 24 * 3600 } },
           },
           {
-            // My appointments/pets stay readable offline (cleared on sign-out).
+            // My appointments stay readable offline (cleared by "Forget me on this device" and staff sign-out).
             urlPattern: ({ url, request }) =>
               request.method === 'GET' && url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/public/'),
             handler: 'NetworkFirst',
@@ -61,7 +61,7 @@ export default defineConfig({
     },
   },
   server: {
-    // Plain `vite` dev: forward /api to `func start`. The SWA CLI (npm run swa) is preferred because it also emulates /.auth.
+    // Plain `vite` dev: forward /api to `func start`. The SWA CLI (npm run swa) is preferred because it also emulates staff sign-in (/.auth).
     proxy: { '/api': 'http://localhost:7071' },
   },
   build: { target: 'es2022', sourcemap: 'hidden' },

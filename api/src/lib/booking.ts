@@ -4,11 +4,12 @@ import { DateTime } from 'luxon';
 import type {
   AddOn,
   Appointment,
+  BookedPet,
   BookingRequest,
   BookingResult,
   BusinessSettings,
-  OwnerProfile,
-  Pet,
+  OwnerDetails,
+  PetDetails,
   Service,
   StatusEvent,
 } from '../shared/types';
@@ -16,8 +17,9 @@ import { ACTIVE_STATUSES } from '../shared/types';
 import { addMinutes, addOnApplies, expiredVaccinations, serviceDuration, servicePrice, servicePriceMax, TEMPERAMENT_LABELS, toMinutes } from '../shared/format';
 import { buildLockMap, dayAvailability, lockBlocks, lockId } from './availability';
 import { Containers } from './cosmos';
+import { clientKeyFor, newManageToken } from './device';
 import { conflict, forbidden, HttpError } from './http';
-import { getAddOns, getService, listClosures, listOwnerAppointments, loadCounts, loadLocks } from './repo';
+import { getAddOns, getService, listClientAppointments, listClosures, loadCounts, loadLocks } from './repo';
 import { addDays, nowIn, ttlAfterDay, zonedUtcIso } from './time';
 
 type WithEtag<T> = T & { _etag?: string };
@@ -226,13 +228,13 @@ export interface BookingActor {
 
 export interface BookingInput {
   request: BookingRequest;
-  profile: OwnerProfile;
-  pet: Pet;
+  /** The booking device (hashed key), or the client's last device when staff book for them. */
+  ownerId: string;
   settings: BusinessSettings;
   actor: BookingActor;
 }
 
-export function petAlerts(pet: Pet): string[] {
+export function petAlerts(pet: PetDetails): string[] {
   const alerts: string[] = [];
   if (pet.temperament === 'nervous' || pet.temperament === 'reactive' || pet.temperament === 'senior') {
     alerts.push(TEMPERAMENT_LABELS[pet.temperament]);
@@ -247,8 +249,9 @@ export function buildAppointment(args: {
   id?: string;
   day: string;
   time: string;
-  pet: Pet;
-  profile: OwnerProfile;
+  pet: BookedPet;
+  owner: OwnerDetails;
+  ownerId: string;
   service: Service;
   addOns: AddOn[];
   settings: BusinessSettings;
@@ -256,7 +259,8 @@ export function buildAppointment(args: {
   seriesId?: string;
   bookedBy: 'owner' | 'staff';
 }): Appointment {
-  const { pet, profile, service, addOns, settings } = args;
+  const { pet, owner, service, addOns, settings } = args;
+  const { id: petId, ...petDetails } = pet;
   const duration = serviceDuration(service, addOns, pet.size);
   const price = servicePrice(service, addOns, pet.size);
   const priceMax = servicePriceMax(service, addOns, pet.size);
@@ -271,16 +275,22 @@ export function buildAppointment(args: {
     endTime,
     startUtc: zonedUtcIso(args.day, args.time, settings.timeZone),
     endUtc: zonedUtcIso(args.day, endTime, settings.timeZone),
-    ownerId: profile.ownerId,
-    ownerName: profile.displayName,
-    ownerEmail: profile.email,
-    ownerPhone: profile.phone,
-    petId: pet.id,
+    ownerId: args.ownerId,
+    clientKey: clientKeyFor(owner.phone),
+    ownerName: owner.displayName,
+    ownerEmail: owner.email,
+    ownerPhone: owner.phone,
+    ownerAddress: owner.address,
+    ownerEmergencyContact: owner.emergencyContact,
+    emailReminders: owner.emailReminders,
+    petId,
     petName: pet.name,
     petSpecies: pet.species,
     petSize: pet.size,
     petBreed: pet.breed,
     petAlerts: petAlerts(pet),
+    pet: petDetails,
+    manageToken: newManageToken(),
     serviceId: service.id,
     serviceName: service.name,
     addOns: addOns.map((a) => ({ id: a.id, name: a.name, price: a.price, durationMinutes: a.durationMinutes })),
@@ -330,7 +340,8 @@ export async function assertSlotOffered(
 
 /** Validates business rules, then books one appointment (or a recurring series). */
 export async function book(c: Containers, input: BookingInput): Promise<BookingResult> {
-  const { request, profile, pet, settings, actor } = input;
+  const { request, ownerId, settings, actor } = input;
+  const { owner, pet } = request;
   const staff = actor.kind === 'staff';
   const service = await getService(c, request.serviceId);
   if (!service.active) throw conflict('That service is not currently offered.', 'service_inactive');
@@ -341,20 +352,22 @@ export async function book(c: Containers, input: BookingInput): Promise<BookingR
   const notOffered = addOns.find((a) => !addOnApplies(a, service.id, pet.species, pet.size));
   if (notOffered) throw conflict(`${notOffered.name} isn't offered with ${service.name} for ${pet.name}'s size.`, 'addon_not_offered');
 
-  if (!staff && settings.noShowLimit > 0 && profile.noShowCount >= settings.noShowLimit) {
-    throw forbidden(`Online booking is paused on your account. Please call us at ${settings.phone} to book.`);
-  }
-
   const dates = [request.day];
   if (request.repeat) {
     for (let i = 1; i < request.repeat.count; i++) dates.push(addDays(request.day, i * request.repeat.everyWeeks * 7));
   }
 
+  // Per-client rules match on the contact number and on the device, so neither alone gets around them.
+  const needsHistory = !staff && (settings.noShowLimit > 0 || settings.maxUpcomingPerOwner > 0);
+  const history = needsHistory ? await listClientAppointments(c, clientKeyFor(owner.phone), ownerId) : [];
+
+  if (!staff && settings.noShowLimit > 0 && countNoShows(history) >= settings.noShowLimit) {
+    throw forbidden(`Online booking is paused for you. Please call us at ${settings.phone} to book.`);
+  }
+
   if (!staff && settings.maxUpcomingPerOwner > 0) {
     const today = nowIn(settings.timeZone).toISODate()!;
-    const upcoming = (await listOwnerAppointments(c, profile.ownerId)).filter(
-      (a) => a.day >= today && ACTIVE_STATUSES.includes(a.status),
-    ).length;
+    const upcoming = history.filter((a) => a.day >= today && ACTIVE_STATUSES.includes(a.status)).length;
     if (upcoming + dates.length > settings.maxUpcomingPerOwner) {
       throw conflict(
         `You can have up to ${settings.maxUpcomingPerOwner} upcoming appointments. You have ${upcoming}.`,
@@ -380,7 +393,8 @@ export async function book(c: Containers, input: BookingInput): Promise<BookingR
         day,
         time: request.time,
         pet,
-        profile,
+        owner,
+        ownerId,
         service,
         addOns,
         settings,
@@ -407,6 +421,11 @@ export async function book(c: Containers, input: BookingInput): Promise<BookingR
     }
   }
   return result;
+}
+
+/** No-shows that still count toward the online-booking pause (staff can excuse them). */
+export function countNoShows(appointments: Pick<Appointment, 'status' | 'noShowExcused'>[]): number {
+  return appointments.filter((a) => a.status === 'no-show' && !a.noShowExcused).length;
 }
 
 /** True when the start is inside the cancellation window (a "late" change). */

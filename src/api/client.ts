@@ -11,15 +11,14 @@ import type {
   ClientDetail,
   ClientSummary,
   Closure,
-  MeResponse,
-  OwnerProfile,
+  PetDetails,
   PetSize,
-  Pet,
   PublicCatalog,
   ReportCard,
   Service,
+  StaffBookingRequest,
   WaitlistEntry,
-  WaitlistWindow,
+  WaitlistRequest,
 } from '@shared/types';
 
 export class ApiError extends Error {
@@ -40,7 +39,7 @@ export class ApiError extends Error {
 
 const FALLBACK: Record<number, string> = {
   0: "You're offline. Check your connection and try again.",
-  401: 'Please sign in to continue.',
+  401: 'Please sign in to the staff portal.',
   403: "You don't have access to that.",
   404: "We couldn't find that.",
   409: 'That just changed. Please refresh and try again.',
@@ -73,7 +72,6 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 const get = <T>(path: string) => request<T>('GET', path);
 const post = <T>(path: string, body: unknown = {}) => request<T>('POST', path, body);
 const put = <T>(path: string, body: unknown) => request<T>('PUT', path, body);
-const patch = <T>(path: string, body: unknown) => request<T>('PATCH', path, body);
 const del = (path: string) => request<void>('DELETE', path);
 const enc = encodeURIComponent;
 
@@ -84,16 +82,21 @@ export interface AvailabilityQuery {
   size: PetSize;
   addOns?: string[];
   exclude?: string;
+  /** Manage token from an email link, so a booking opened on another device can still be moved. */
+  token?: string;
   staff?: boolean;
 }
 
-export type PetInput = Omit<Pet, 'id' | 'type' | 'ownerId' | 'createdAt' | 'updatedAt' | 'archived' | 'photo'> & { photo?: string | null };
-export type ProfileInput = Pick<OwnerProfile, 'displayName' | 'email' | 'phone' | 'address' | 'emergencyContact' | 'emailReminders' | 'emailMarketing'>;
+/** What the pet form produces. photo: undefined keeps the current one, null removes it. */
+export type PetInput = PetDetails & { photo?: string | null };
 export type ServiceInput = Omit<Service, 'kind' | 'updatedAt'>;
 export type AddOnInput = Omit<AddOn, 'kind' | 'updatedAt'>;
 export type ClosureInput = Pick<Closure, 'date' | 'start' | 'end' | 'reason'>;
 export type SettingsInput = Omit<BusinessSettings, 'id' | 'kind' | 'updatedAt'>;
 export type ReportCardInput = Omit<ReportCard, 'createdAt'>;
+
+/** Appointment URLs carry ?t= when the booking was opened from an email link on another device. */
+const appt = (id: string, token?: string, action = '') => `appointments/${enc(id)}${action}${token ? `?t=${enc(token)}` : ''}`;
 
 export const api = {
   catalog: () => get<PublicCatalog>('public/catalog'),
@@ -101,35 +104,29 @@ export const api = {
     const params = new URLSearchParams({ from: q.from, to: q.to, serviceId: q.serviceId, size: q.size });
     if (q.addOns?.length) params.set('addOns', q.addOns.join(','));
     if (q.exclude) params.set('exclude', q.exclude);
+    if (q.token) params.set('t', q.token);
     if (q.staff) params.set('staff', '1');
     return get<AvailabilityResponse>(`public/availability?${params}`);
   },
 
-  me: () => get<MeResponse>('me'),
-  updateMe: (input: ProfileInput) => put<MeResponse>('me', input),
-  deleteMe: () => del('me'),
-  exportUrl: '/api/me/export',
-
-  pets: () => get<Pet[]>('pets'),
-  pet: (id: string) => get<Pet>(`pets/${enc(id)}`),
-  createPet: (input: PetInput) => post<Pet>('pets', input),
-  updatePet: (id: string, input: PetInput) => put<Pet>(`pets/${enc(id)}`, input),
-  deletePet: (id: string) => del(`pets/${enc(id)}`),
-
+  /** This device's bookings (the server knows the device by an HttpOnly cookie). */
   appointments: () => get<Appointment[]>('appointments'),
-  appointment: (id: string) => get<Appointment>(`appointments/${enc(id)}`),
+  appointment: (id: string, token?: string) => get<Appointment>(appt(id, token)),
   book: (input: BookingRequest) => post<BookingResult>('appointments', input),
-  cancel: (id: string, reason?: string) => post<Appointment>(`appointments/${enc(id)}/cancel`, { reason }),
-  reschedule: (id: string, day: string, time: string) => post<Appointment>(`appointments/${enc(id)}/reschedule`, { day, time }),
-  updateNotes: (id: string, notes?: string) => put<Appointment>(`appointments/${enc(id)}/notes`, { notes }),
-  review: (id: string, rating: number, comment?: string) => post<Appointment>(`appointments/${enc(id)}/review`, { rating, comment }),
-  icsUrl: (id: string) => `/api/appointments/${enc(id)}/ics`,
+  cancel: (id: string, reason?: string, token?: string) => post<Appointment>(appt(id, token, '/cancel'), { reason }),
+  reschedule: (id: string, day: string, time: string, token?: string) => post<Appointment>(appt(id, token, '/reschedule'), { day, time }),
+  updateNotes: (id: string, notes?: string, token?: string) => put<Appointment>(appt(id, token, '/notes'), { notes }),
+  review: (id: string, rating: number, comment?: string, token?: string) => post<Appointment>(appt(id, token, '/review'), { rating, comment }),
+  icsUrl: (id: string, token?: string) => `/api/${appt(id, token, '/ics')}`,
+  /** Drops the device cookie. The device's saved details are cleared by the account store. */
+  forgetDevice: () => post<void>('device/forget'),
 
   waitlist: () => get<WaitlistEntry[]>('waitlist'),
-  joinWaitlist: (input: { day: string; petId: string; serviceId: string; window: WaitlistWindow }) => post<WaitlistEntry>('waitlist', input),
+  joinWaitlist: (input: WaitlistRequest) => post<WaitlistEntry>('waitlist', input),
   leaveWaitlist: (entry: WaitlistEntry) => del(`waitlist/${enc(entry.day)}/${enc(entry.id)}`),
 
   admin: {
+    book: (input: StaffBookingRequest) => post<BookingResult>('staff/appointments', input),
     agenda: (from: string, to: string) => get<AgendaResponse>(`staff/agenda?from=${from}&to=${to}`),
     appointment: (id: string) => get<Appointment>(`staff/appointments/${enc(id)}`),
     setStatus: (id: string, status: AppointmentStatus, note?: string, finalPrice?: number) =>
@@ -151,8 +148,8 @@ export const api = {
     createClosure: (input: ClosureInput) => post<Closure>('staff/catalog/closure', input),
     deleteClosure: (id: string) => del(`staff/catalog/closure/${enc(id)}`),
     clients: (q = '') => get<ClientSummary[]>(`staff/clients?q=${enc(q)}`),
-    client: (ownerId: string) => get<ClientDetail>(`staff/clients/${enc(ownerId)}`),
-    resetNoShows: (ownerId: string) => patch<OwnerProfile>(`staff/clients/${enc(ownerId)}`, { noShowCount: 0 }),
+    client: (clientKey: string) => get<ClientDetail>(`staff/clients/${enc(clientKey)}`),
+    excuseNoShows: (clientKey: string) => post<{ excused: number }>(`staff/clients/${enc(clientKey)}/excuse-no-shows`),
     stats: (from: string, to: string) => get<AdminStats>(`staff/stats?from=${from}&to=${to}`),
     exportUrl: (from: string, to: string) => `/api/staff/export?from=${from}&to=${to}`,
   },
@@ -165,7 +162,7 @@ export interface ClientPrincipal {
   userRoles: string[];
 }
 
-/** SWA's built-in endpoint: who is signed in (null for visitors). */
+/** SWA's built-in endpoint: which staff member is signed in (null for everyone else). */
 export async function fetchPrincipal(): Promise<ClientPrincipal | null> {
   try {
     const res = await fetch('/.auth/me', { credentials: 'same-origin' });

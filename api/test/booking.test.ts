@@ -3,7 +3,7 @@ import type { Container, OperationInput } from '@azure/cosmos';
 import { buildAppointment, insertAppointment, moveAppointment, releaseAppointment } from '../src/lib/booking';
 import { defaultAddOns, defaultServices, defaultSettings } from '../src/lib/seed';
 import { addOnApplies, formatMoney, formatPriceRange, servicePrice, sizePrice, sizesFor } from '../src/shared/format';
-import type { Appointment, OwnerProfile, Pet } from '../src/shared/types';
+import type { Appointment, BookedPet, OwnerDetails } from '../src/shared/types';
 import { PET_SIZES } from '../src/shared/types';
 
 /**
@@ -73,18 +73,16 @@ class FakeContainer {
 
 const settings = { ...defaultSettings(), timeZone: 'America/Chicago', maxAppointmentsPerDay: 2 };
 const service = defaultServices().find((s) => s.id === 'basic-grooming')!;
-const profile: OwnerProfile = {
-  id: 'o1', type: 'profile', ownerId: 'o1', email: 'a@b.c', displayName: 'Sam', emailReminders: true,
-  emailMarketing: false, onboarded: true, noShowCount: 0, createdAt: '', updatedAt: '',
+const owner: OwnerDetails = {
+  displayName: 'Sam', phone: '0917 123 4567', email: 'a@b.c', address: '12 Mabini Street', emailReminders: true,
 };
-const pet: Pet = {
-  id: 'p1', type: 'pet', ownerId: 'o1', name: 'Biscuit', species: 'dog', breed: 'Corgi', size: 'medium',
-  temperament: 'friendly', vaccinations: [], createdAt: '', updatedAt: '',
+const pet: BookedPet = {
+  id: 'pet-00000001', name: 'Biscuit', species: 'dog', breed: 'Corgi', size: 'medium', temperament: 'friendly', vaccinations: [],
 };
 const DAY = '2026-10-13';
 
 function appt(time: string, day = DAY) {
-  return buildAppointment({ day, time, pet, profile, service, addOns: [], settings, bookedBy: 'owner' });
+  return buildAppointment({ day, time, pet, owner, ownerId: 'd-device', service, addOns: [], settings, bookedBy: 'owner' });
 }
 
 describe('service menu', () => {
@@ -121,7 +119,7 @@ describe('service menu', () => {
 
   it('records a price range on the booking when the price depends on coat volume', () => {
     const husky = { ...pet, size: 'husky_chow' as const };
-    const a = buildAppointment({ day: DAY, time: '09:00', pet: husky, profile, service, addOns: [], settings, bookedBy: 'owner' });
+    const a = buildAppointment({ day: DAY, time: '09:00', pet: husky, owner, ownerId: 'd-device', service, addOns: [], settings, bookedBy: 'owner' });
     expect([a.estimatedPrice, a.estimatedPriceMax]).toEqual([750, 850]);
     expect(appt('09:00').estimatedPriceMax).toBeUndefined();
   });
@@ -211,7 +209,7 @@ describe('transactional booking', () => {
 describe('pet validation', () => {
   it('requires one of the four dog sizes and stores cats as one size', async () => {
     const { petInput } = await import('../src/lib/validation');
-    const base = { name: 'Koda', species: 'dog', size: 'husky_chow', vaccinations: [] };
+    const base = { id: 'b1f2c3d4-0000-4000-8000-000000000001', name: 'Koda', species: 'dog', size: 'husky_chow', vaccinations: [] };
     expect(petInput.safeParse(base).success).toBe(true);
     expect(petInput.safeParse({ ...base, size: 'xlarge' }).success).toBe(false);
     expect(petInput.safeParse({ ...base, size: undefined }).success).toBe(false);
@@ -229,7 +227,6 @@ describe('client details', () => {
       email: 'sam@example.com',
       address: '12 Mabini Street, Barangay Uno, Sample City',
       emailReminders: true,
-      emailMarketing: false,
     };
     expect(profileInput.safeParse(ok).success).toBe(true);
     expect(profileInput.safeParse({ ...ok, phone: '+63 917 123 4567' }).success).toBe(true);
@@ -237,5 +234,57 @@ describe('client details', () => {
     expect(profileInput.safeParse({ ...ok, phone: 'call me' }).success).toBe(false);
     expect(profileInput.safeParse({ ...ok, email: 'not-an-email' }).success).toBe(false);
     expect(profileInput.safeParse({ ...ok, address: '' }).success).toBe(false);
+  });
+
+  it('copies the owner and pet onto the booking, without the photo', async () => {
+    const { petInput } = await import('../src/lib/validation');
+    const sent = petInput.parse({ ...pet, allergies: 'Oatmeal', photo: 'data:image/jpeg;base64,AAAA' });
+    const a = buildAppointment({
+      day: DAY, time: '09:00', pet: sent, owner: { ...owner, phone: '+63 917 123 4567' }, ownerId: 'd-device',
+      service, addOns: [], settings, bookedBy: 'owner',
+    });
+    expect(a).toMatchObject({ ownerId: 'd-device', clientKey: '09171234567', ownerAddress: owner.address, emailReminders: true, petId: pet.id });
+    expect(a.pet).toMatchObject({ name: 'Biscuit', allergies: 'Oatmeal' });
+    expect(a.pet).not.toHaveProperty('photo');
+    expect(a.manageToken).toHaveLength(32);
+    expect(appt('09:00').manageToken).not.toBe(a.manageToken);
+  });
+});
+
+describe('no sign-in: device key and email links', () => {
+  const request = (cookie?: string, t?: string) =>
+    ({
+      headers: new Headers(cookie ? { cookie } : {}),
+      query: new URLSearchParams(t ? { t } : {}),
+    }) as unknown as import('@azure/functions').HttpRequest;
+
+  it('gives a new device a key, renews it on later bookings and never stores it', async () => {
+    const { DEVICE_COOKIE, deviceOwnerId, ensureDevice } = await import('../src/lib/device');
+    const first = ensureDevice(request());
+    expect(first.cookie).toMatchObject({ name: DEVICE_COOKIE, httpOnly: true, secure: true, sameSite: 'Lax', path: '/api' });
+    expect(first.ownerId).not.toContain(first.cookie.value);
+    const cookie = `other=1; ${DEVICE_COOKIE}=${first.cookie.value}`;
+    expect(deviceOwnerId(request(cookie))).toBe(first.ownerId);
+    expect(ensureDevice(request(cookie))).toMatchObject({ ownerId: first.ownerId, cookie: { value: first.cookie.value } });
+    expect(deviceOwnerId(request(`${DEVICE_COOKIE}=tampered`))).toBeUndefined();
+  });
+
+  it('opens a booking on the device that made it, or with its email link, and nowhere else', async () => {
+    const { DEVICE_COOKIE, ensureDevice } = await import('../src/lib/device');
+    const { ownsAppointment } = await import('../src/lib/actions');
+    const device = ensureDevice(request());
+    const a = { ...appt('09:00'), ownerId: device.ownerId };
+    expect(ownsAppointment(request(`${DEVICE_COOKIE}=${device.cookie.value}`), a)).toBe(true);
+    expect(ownsAppointment(request(undefined, a.manageToken), a)).toBe(true);
+    expect(ownsAppointment(request(), a)).toBe(false);
+    expect(ownsAppointment(request(`${DEVICE_COOKIE}=${ensureDevice(request()).cookie.value}`), a)).toBe(false);
+    expect(ownsAppointment(request(undefined, `${a.manageToken.slice(0, -1)}x`), a)).toBe(false);
+  });
+
+  it('groups a client by contact number however it was typed, and counts only unexcused no-shows', async () => {
+    const { clientKeyFor } = await import('../src/lib/device');
+    const { countNoShows } = await import('../src/lib/booking');
+    expect(['0917 123 4567', '+63 917 123 4567', '0917-123-4567'].map(clientKeyFor)).toEqual(Array(3).fill('09171234567'));
+    expect(countNoShows([{ status: 'no-show' }, { status: 'no-show', noShowExcused: true }, { status: 'completed' }])).toBe(1);
   });
 });

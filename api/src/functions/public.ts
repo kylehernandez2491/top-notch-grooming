@@ -1,10 +1,11 @@
 import type { AvailabilityResponse, PetSize, PublicCatalog } from '../shared/types';
 import { PET_SIZES } from '../shared/types';
 import { serviceDuration } from '../shared/format';
+import { ownsAppointment } from '../lib/actions';
 import { getPrincipal, isAdmin } from '../lib/auth';
 import { buildLockMap, rangeAvailability } from '../lib/availability';
 import { getContainers } from '../lib/cosmos';
-import { badRequest, forbidden, query, route, unauthorized } from '../lib/http';
+import { badRequest, forbidden, query, route } from '../lib/http';
 import { findAppointment, getAddOns, getService, listClosures, loadCatalog, loadCounts, loadLocks, ratingSummary } from '../lib/repo';
 import { addDays, daysBetween, isValidDay, nowIn, todayIn } from '../lib/time';
 
@@ -36,10 +37,10 @@ route(
 );
 
 /**
- * Availability calendar data. Anonymous so visitors can browse open times before signing in.
+ * Availability calendar data. Anonymous, so anyone can browse open times.
  * ?from=YYYY-MM-DD&to=YYYY-MM-DD&serviceId=full-groom&size=medium&addOns=teeth,facial
- * Optional: &exclude=<appointmentId> (owner/staff, treats that appointment's own time as free while
- * rescheduling) and &staff=1 (staff only: ignore notice/horizon/daily cap).
+ * Optional: &exclude=<appointmentId> (owner's device, its &t= manage token, or staff; treats that
+ * appointment's own time as free while rescheduling) and &staff=1 (staff only: ignore notice/horizon/daily cap).
  */
 route('publicAvailability', ['GET'], 'public/availability', async (req): Promise<AvailabilityResponse> => {
   const c = await getContainers();
@@ -66,9 +67,8 @@ route('publicAvailability', ['GET'], 'public/availability', async (req): Promise
   let ignore: { id: string; day: string } | undefined;
   const exclude = query(req, 'exclude');
   if (exclude) {
-    if (!principal) throw unauthorized();
     const appointment = await findAppointment(c, exclude);
-    if (appointment.ownerId !== principal.userId && !isAdmin(principal)) throw forbidden();
+    if (!ownsAppointment(req, appointment) && !isAdmin(principal)) throw forbidden();
     ignore = { id: appointment.id, day: appointment.day };
   }
 

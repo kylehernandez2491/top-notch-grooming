@@ -24,6 +24,11 @@ const session = useSession();
 const ui = useUi();
 
 const staff = computed(() => session.isAdmin && route.query.staff === '1');
+/** Manage token when the owner came from an email link on a device that didn't book it. */
+const token = typeof route.query.t === 'string' ? route.query.t : undefined;
+const backTo = computed(() =>
+  staff.value ? `/admin/appointments/${route.params.id}` : { path: `/appointments/${route.params.id}`, query: token ? { t: token } : {} },
+);
 const appointment = ref<Appointment | null>(null);
 const error = ref('');
 const day = ref<string>();
@@ -34,7 +39,7 @@ const saving = ref(false);
 onMounted(async () => {
   try {
     const id = route.params.id as string;
-    appointment.value = staff.value ? await api.admin.appointment(id) : await api.appointment(id);
+    appointment.value = staff.value ? await api.admin.appointment(id) : await api.appointment(id, token);
     month.value = monthOf(appointment.value.day >= catalog.today ? appointment.value.day : catalog.today);
   } catch (err) {
     error.value = (err as Error).message;
@@ -48,6 +53,7 @@ const params = computed<AvailabilityParams | null>(() =>
         size: appointment.value.petSize,
         addOns: appointment.value.addOns.map((a) => a.id).sort(),
         exclude: appointment.value.id,
+        token: staff.value ? undefined : token,
         staff: staff.value,
       }
     : null,
@@ -62,11 +68,11 @@ async function save() {
   try {
     const moved = staff.value
       ? await api.admin.reschedule(appointment.value.id, day.value, time.value)
-      : await api.reschedule(appointment.value.id, day.value, time.value);
+      : await api.reschedule(appointment.value.id, day.value, time.value, token);
     account.upsertAppointment(moved);
     buzz();
     ui.toast(`Moved to ${shortDay(moved.day)} at ${formatTime12(moved.startTime)}.`, 'success');
-    router.replace(staff.value ? `/admin/appointments/${moved.id}` : `/appointments/${moved.id}`);
+    router.replace(backTo.value);
   } catch (err) {
     ui.toast((err as Error).message, 'error');
     if (err instanceof ApiError && err.status === 409) {
@@ -81,7 +87,7 @@ async function save() {
 
 <template>
   <div class="page">
-    <RouterLink :to="staff ? `/admin/appointments/${route.params.id}` : `/appointments/${route.params.id}`" class="back small">
+    <RouterLink :to="backTo" class="back small">
       <Icon name="chevron-left" :size="16" /> Back
     </RouterLink>
     <p v-if="error" class="alert">{{ error }}</p>

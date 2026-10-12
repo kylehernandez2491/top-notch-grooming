@@ -21,11 +21,12 @@ const error = ref('');
 
 onMounted(async () => {
   try {
-    detail.value = await api.admin.client(route.params.ownerId as string);
+    detail.value = await api.admin.client(route.params.clientKey as string);
   } catch (err) {
     error.value = (err as Error).message;
   }
 });
+const owner = computed(() => detail.value?.owner);
 
 const nowIso = new Date().toISOString();
 const upcoming = computed(() => detail.value?.appointments.filter((a) => ACTIVE_STATUSES.includes(a.status) && a.endUtc > nowIso) ?? []);
@@ -34,11 +35,12 @@ const spend = computed(() =>
   (detail.value?.appointments ?? []).filter((a) => a.status === 'completed').reduce((s, a) => s + (a.finalPrice ?? a.estimatedPrice), 0),
 );
 
-async function resetNoShows() {
+async function excuseNoShows() {
   if (!detail.value) return;
   try {
-    detail.value.profile = await api.admin.resetNoShows(detail.value.profile.ownerId);
-    ui.toast('No-show count reset. Online booking is open for this client again.', 'success');
+    await api.admin.excuseNoShows(detail.value.clientKey);
+    detail.value = await api.admin.client(detail.value.clientKey);
+    ui.toast('No-shows excused. Online booking is open for this client again.', 'success');
   } catch (err) {
     ui.toast((err as Error).message, 'error');
   }
@@ -51,32 +53,33 @@ async function resetNoShows() {
     <p v-if="error" class="alert">{{ error }}</p>
     <div v-if="!detail && !error" class="skeleton" style="height: 240px" />
 
-    <template v-if="detail">
+    <template v-if="detail && owner">
       <header class="spread">
         <div class="stack head">
-          <h1>{{ detail.profile.displayName }}</h1>
-          <span class="muted small">Client since {{ shortDay(detail.profile.createdAt.slice(0, 10)) }}, {{ formatMoney(spend) }} spent</span>
+          <h1>{{ owner.displayName }}</h1>
+          <span class="muted small">Client since {{ shortDay(detail.firstVisit.slice(0, 10)) }}, {{ formatMoney(spend) }} spent</span>
         </div>
-        <RouterLink class="btn btn-primary" :to="{ path: '/book', query: { ownerId: detail.profile.ownerId } }">Book for client</RouterLink>
+        <RouterLink class="btn btn-primary" :to="{ path: '/admin/book', query: { client: detail.clientKey } }">Book for client</RouterLink>
       </header>
 
       <section class="panel stack">
+        <p class="small muted">Details as the client gave them on their latest booking.</p>
         <div class="row">
-          <a v-if="detail.profile.phone" class="btn btn-sm" :href="telUrl(detail.profile.phone)"><Icon name="phone" :size="18" /> {{ detail.profile.phone }}</a>
-          <a class="btn btn-sm" :href="`mailto:${detail.profile.email}`"><Icon name="mail" :size="18" /> {{ detail.profile.email }}</a>
+          <a v-if="owner.phone" class="btn btn-sm" :href="telUrl(owner.phone)"><Icon name="phone" :size="18" /> {{ owner.phone }}</a>
+          <a class="btn btn-sm" :href="`mailto:${owner.email}`"><Icon name="mail" :size="18" /> {{ owner.email }}</a>
         </div>
-        <p v-if="detail.profile.address" class="row small client-address">
+        <p v-if="owner.address" class="row small client-address">
           <Icon name="map" :size="16" />
-          <a :href="mapsUrl(detail.profile.address)" target="_blank" rel="noopener">{{ detail.profile.address }}</a>
+          <a :href="mapsUrl(owner.address)" target="_blank" rel="noopener">{{ owner.address }}</a>
         </p>
-        <p v-if="detail.profile.emergencyContact" class="small">Emergency contact: {{ detail.profile.emergencyContact }}</p>
-        <p class="small muted">Reminder emails {{ detail.profile.emailReminders ? 'on' : 'off' }}.</p>
-        <div v-if="detail.profile.noShowCount" class="note">
+        <p v-if="owner.emergencyContact" class="small">Emergency contact: {{ owner.emergencyContact }}</p>
+        <p class="small muted">Reminder emails {{ owner.emailReminders ? 'on' : 'off' }}.</p>
+        <div v-if="detail.noShows" class="note">
           <Icon name="alert" :size="18" />
           <span>
-            {{ detail.profile.noShowCount }} no-show{{ detail.profile.noShowCount === 1 ? '' : 's' }}.
-            <template v-if="catalog.settings?.noShowLimit && detail.profile.noShowCount >= catalog.settings.noShowLimit">Online booking is paused.</template>
-            <button type="button" class="btn btn-sm btn-ghost" @click="resetNoShows">Reset</button>
+            {{ detail.noShows }} no-show{{ detail.noShows === 1 ? '' : 's' }}.
+            <template v-if="catalog.settings?.noShowLimit && detail.noShows >= catalog.settings.noShowLimit">Online booking is paused.</template>
+            <button type="button" class="btn btn-sm btn-ghost" @click="excuseNoShows">Excuse</button>
           </span>
         </div>
       </section>
@@ -85,7 +88,7 @@ async function resetNoShows() {
         <h2 class="section-title">Pets</h2>
         <article v-for="pet in detail.pets" :key="pet.id" class="panel pet">
           <div class="row">
-            <PetAvatar :name="pet.name" :photo="pet.photo" :size="56" />
+            <PetAvatar :name="pet.name" :size="56" />
             <div class="stack pet-head">
               <strong class="pet-name">{{ pet.name }}</strong>
               <span class="muted small">

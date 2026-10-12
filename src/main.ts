@@ -19,8 +19,8 @@ const updateSW = registerSW({
   },
 });
 
-// Session expired while the app was open: send the person to sign in, then back here.
+// Staff session expired while the portal was open: sign in again, then come back here.
 window.addEventListener('api:unauthorized', () => {
   const current = router.currentRoute.value;
-  if (current.meta.auth) router.push({ name: 'login', query: { redirect: current.fullPath, expired: '1' } });
+  if (current.meta.admin) router.push({ name: 'staff-login', query: { redirect: current.fullPath, expired: '1' } });
 });

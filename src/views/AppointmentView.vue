@@ -28,12 +28,13 @@ const savingNotes = ref(false);
 const rating = ref(0);
 const comment = ref('');
 const sendingReview = ref(false);
+/** Set when this page was opened from an email link, possibly on a device that didn't book it. */
+const token = typeof route.query.t === 'string' ? route.query.t : undefined;
 
 onMounted(async () => {
   try {
-    appointment.value = await api.appointment(route.params.id as string);
+    appointment.value = await api.appointment(route.params.id as string, token);
     notes.value = appointment.value.notes ?? '';
-    account.loadPets().catch(() => undefined);
     if (route.hash === '#review') setTimeout(() => document.getElementById('review')?.scrollIntoView({ behavior: 'smooth' }), 300);
   } catch (err) {
     error.value = (err as Error).message;
@@ -85,7 +86,7 @@ async function cancel() {
   });
   if (!confirmed) return;
   try {
-    update(await api.cancel(a.value.id, reason));
+    update(await api.cancel(a.value.id, reason, token));
     ui.toast('Appointment cancelled.', 'success');
   } catch (err) {
     ui.toast((err as Error).message, 'error');
@@ -96,7 +97,7 @@ async function saveNotes() {
   if (!a.value) return;
   savingNotes.value = true;
   try {
-    update(await api.updateNotes(a.value.id, notes.value.trim() || undefined));
+    update(await api.updateNotes(a.value.id, notes.value.trim() || undefined, token));
     ui.toast('Notes saved.', 'success');
   } catch (err) {
     ui.toast((err as Error).message, 'error');
@@ -109,7 +110,7 @@ async function sendReview() {
   if (!a.value || !rating.value) return;
   sendingReview.value = true;
   try {
-    update(await api.review(a.value.id, rating.value, comment.value.trim() || undefined));
+    update(await api.review(a.value.id, rating.value, comment.value.trim() || undefined, token));
     ui.toast('Thanks for the feedback!', 'success');
   } catch (err) {
     ui.toast((err as Error).message, 'error');
@@ -160,7 +161,7 @@ const eventLabels: Record<string, string> = {
         <p class="when-main">{{ longDay(a.day) }}</p>
         <p class="when-time tabular">{{ formatTime12(a.startTime) }} drop-off, pick-up around {{ formatTime12(a.endTime) }}</p>
         <div v-if="upcoming" class="row actions">
-          <a class="btn btn-sm" :href="api.icsUrl(a.id)"><Icon name="calendar" :size="18" /> Add to calendar</a>
+          <a class="btn btn-sm" :href="api.icsUrl(a.id, token)"><Icon name="calendar" :size="18" /> Add to calendar</a>
           <a v-if="calendarEvent" class="btn btn-sm" :href="googleCalendarUrl(calendarEvent)" target="_blank" rel="noopener">Google Calendar</a>
           <button type="button" class="btn btn-sm" @click="share"><Icon name="share" :size="18" /> Share</button>
           <a v-if="catalog.settings" class="btn btn-sm" :href="mapsUrl(catalog.settings.address)" target="_blank" rel="noopener">
@@ -240,7 +241,9 @@ const eventLabels: Record<string, string> = {
       <div v-if="upcoming" class="stack">
         <p v-if="late" class="small muted">{{ catalog.settings?.policies.cancellation }}</p>
         <div class="row">
-          <RouterLink :to="`/appointments/${a.id}/reschedule`" class="btn btn-dark"><Icon name="clock" :size="18" /> Change time</RouterLink>
+          <RouterLink :to="{ path: `/appointments/${a.id}/reschedule`, query: token ? { t: token } : {} }" class="btn btn-dark">
+            <Icon name="clock" :size="18" /> Change time
+          </RouterLink>
           <button type="button" class="btn btn-danger" @click="cancel">Cancel appointment</button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import type { BookingResult, OwnerProfile, Pet, WaitlistWindow } from '@shared/types';
+import type { BookedPet, BookingResult, ClientDetail, WaitlistWindow } from '@shared/types';
 import {
   expiredVaccinations,
   formatDuration,
@@ -22,17 +22,16 @@ import SheetDialog from '@/components/SheetDialog.vue';
 import SlotPicker from '@/components/SlotPicker.vue';
 import TileCalendar from '@/components/TileCalendar.vue';
 import { useAvailability, type AvailabilityParams } from '@/composables/useAvailability';
-import { useAccount } from '@/stores/account';
+import { bookedPet, useAccount } from '@/stores/account';
 import { useCatalog } from '@/stores/catalog';
-import { useSession } from '@/stores/session';
 import { useUi } from '@/stores/ui';
 import { addDays, longDay, monthOf, shortDay } from '@/utils/dates';
 import { buzz, shareOrCopy } from '@/utils/device';
 
+/** Owners book with the details saved on their device; staff book at /admin/book?client=<clientKey>. */
 const route = useRoute();
 const catalog = useCatalog();
 const account = useAccount();
-const session = useSession();
 const ui = useUi();
 
 type Step = 1 | 2 | 3 | 4;
@@ -40,10 +39,11 @@ const steps = ['Pet', 'Service', 'Time', 'Confirm'];
 const step = ref<Step>(1);
 
 const q = (key: string) => (typeof route.query[key] === 'string' ? (route.query[key] as string) : undefined);
-const staffOwnerId = computed(() => (session.isAdmin ? q('ownerId') : undefined));
-const client = ref<OwnerProfile | null>(null);
+const staff = computed(() => route.name === 'admin-book');
+const client = ref<ClientDetail | null>(null);
 
-const pets = ref<Pet[]>([]);
+/** Owners' pets come from this device (with photos); a client's come from their booking history. */
+const pets = ref<(BookedPet & { photo?: string })[]>([]);
 const loading = ref(true);
 const loadError = ref('');
 const petId = ref(q('petId'));
@@ -61,12 +61,13 @@ const month = ref(monthOf(day.value ?? catalog.today));
 onMounted(async () => {
   try {
     await catalog.load();
-    if (staffOwnerId.value) {
-      const detail = await api.admin.client(staffOwnerId.value);
-      client.value = detail.profile;
-      pets.value = detail.pets;
+    if (staff.value) {
+      const clientKey = q('client');
+      if (!clientKey) throw new Error('Open a client from the Clients screen, then choose "Book for client".');
+      client.value = await api.admin.client(clientKey);
+      pets.value = client.value.pets;
     } else {
-      pets.value = await account.loadPets(true);
+      pets.value = account.pets;
     }
     if (!petId.value && pets.value.length === 1) petId.value = pets.value[0].id;
     // Jump ahead as far as the prefilled details allow (rebook links, availability page, waitlist emails).
@@ -100,12 +101,12 @@ watch(addOns, (list) => {
 
 const params = computed<AvailabilityParams | null>(() =>
   service.value && pet.value
-    ? { serviceId: service.value.id, size: pet.value.size, addOns: [...addOnIds.value].sort(), staff: !!staffOwnerId.value }
+    ? { serviceId: service.value.id, size: pet.value.size, addOns: [...addOnIds.value].sort(), staff: staff.value }
     : null,
 );
 const availability = useAvailability(params, month);
 const dayInfo = computed(() => (day.value ? availability.days.value.get(day.value) : undefined));
-const maxMonth = computed(() => monthOf(addDays(catalog.today, staffOwnerId.value ? 365 : (catalog.settings?.bookingHorizonDays ?? 60))));
+const maxMonth = computed(() => monthOf(addDays(catalog.today, staff.value ? 365 : (catalog.settings?.bookingHorizonDays ?? 60))));
 
 // A previously chosen time can vanish when the service or add-ons change the length.
 watch(
@@ -165,21 +166,28 @@ function go(to: Step) {
 }
 
 async function submit() {
-  if (!pet.value || !service.value || !day.value || !time.value) return;
+  const owner = staff.value ? client.value?.owner : account.profile;
+  if (!owner || !pet.value || !service.value || !day.value || !time.value) return;
   submitting.value = true;
   submitError.value = '';
   try {
-    result.value = await api.book({
-      petId: pet.value.id,
+    const { photo: _photo, ...details } = pet.value;
+    const request = {
+      owner,
+      pet: staff.value ? details : bookedPet(account.petById(pet.value.id)!),
       serviceId: service.value.id,
       addOnIds: addOnIds.value,
       day: day.value,
       time: time.value,
       notes: notes.value.trim() || undefined,
       repeat: repeat.value.enabled ? { everyWeeks: repeat.value.everyWeeks, count: repeat.value.count } : undefined,
-      ownerId: staffOwnerId.value,
-    });
-    result.value.appointments.forEach((a) => account.upsertAppointment(a));
+    };
+    if (staff.value) {
+      result.value = await api.admin.book({ ...request, ownerId: client.value?.ownerId });
+    } else {
+      result.value = await api.book(request);
+      result.value.appointments.forEach((a) => account.upsertAppointment(a));
+    }
     buzz([10, 40, 10]);
   } catch (err) {
     submitError.value = (err as Error).message;
@@ -198,9 +206,16 @@ async function submit() {
 const waitlistOpen = ref(false);
 const waitlistWindow = ref<WaitlistWindow>('any');
 async function joinWaitlist() {
-  if (!pet.value || !service.value || !day.value) return;
+  const owner = account.profile;
+  if (!owner || !pet.value || !service.value || !day.value) return;
   try {
-    await api.joinWaitlist({ day: day.value, petId: pet.value.id, serviceId: service.value.id, window: waitlistWindow.value });
+    await api.joinWaitlist({
+      day: day.value,
+      serviceId: service.value.id,
+      window: waitlistWindow.value,
+      owner: { displayName: owner.displayName, email: owner.email, phone: owner.phone },
+      pet: { id: pet.value.id, name: pet.value.name },
+    });
     waitlistOpen.value = false;
     ui.toast(`You're on the waitlist for ${shortDay(day.value)}. We'll email you if a spot opens.`, 'success');
     account.loadWaitlist(true);
@@ -242,7 +257,7 @@ function bookAnother() {
     <!-- Success -->
     <section v-if="result" class="done stack-lg" aria-live="polite">
       <div class="done-mark" aria-hidden="true"><Icon name="check" :size="40" /></div>
-      <h1>{{ staffOwnerId ? 'Booked.' : "You're booked!" }}</h1>
+      <h1>{{ staff ? 'Booked.' : "You're booked!" }}</h1>
       <div class="panel stack">
         <p class="done-when">
           <strong>{{ longDay(result.appointments[0].day) }} at {{ formatTime12(result.appointments[0].startTime) }}</strong>
@@ -256,14 +271,14 @@ function bookAnother() {
           Also booked: {{ alsoBooked }}.
         </p>
         <p v-for="s in result.skipped" :key="s.day" class="alert small">{{ shortDay(s.day) }} wasn't booked: {{ s.reason }}</p>
-        <p class="small muted">A confirmation email is on its way{{ staffOwnerId ? ' to the client' : '' }}.</p>
+        <p class="small muted">A confirmation email is on its way{{ staff ? ' to the client' : '' }}.</p>
       </div>
       <div class="row">
         <a class="btn" :href="api.icsUrl(result.appointments[0].id)"><Icon name="calendar" :size="18" /> Add to calendar</a>
         <button type="button" class="btn" @click="share"><Icon name="share" :size="18" /> Share</button>
         <RouterLink
           class="btn btn-dark"
-          :to="staffOwnerId ? `/admin/appointments/${result.appointments[0].id}` : `/appointments/${result.appointments[0].id}`"
+          :to="staff ? `/admin/appointments/${result.appointments[0].id}` : `/appointments/${result.appointments[0].id}`"
         >
           View booking
         </RouterLink>
@@ -273,7 +288,7 @@ function bookAnother() {
 
     <template v-else>
       <header class="stack">
-        <h1>{{ staffOwnerId ? `Book for ${client?.displayName ?? 'client'}` : 'Book a groom' }}</h1>
+        <h1>{{ staff ? `Book for ${client?.owner.displayName ?? 'client'}` : 'Book a groom' }}</h1>
         <ol class="stepper" aria-label="Booking steps">
           <li v-for="(label, i) in steps" :key="label" :aria-current="step === i + 1 ? 'step' : undefined" :class="{ done: step > i + 1 }">
             <button type="button" :disabled="i + 1 > step" @click="go((i + 1) as Step)">
@@ -309,7 +324,7 @@ function bookAnother() {
             </span>
           </button>
         </div>
-        <RouterLink v-if="!staffOwnerId" :to="{ path: '/pets/new', query: { return: route.fullPath } }" class="btn">
+        <RouterLink v-if="!staff" :to="{ path: '/pets/new', query: { return: route.fullPath } }" class="btn">
           <Icon name="plus" :size="18" /> Add a pet
         </RouterLink>
       </section>
@@ -382,7 +397,7 @@ function bookAnother() {
         <p class="muted small">{{ service.name }} for {{ pet.name }} takes about {{ formatDuration(duration) }}.</p>
         <p v-if="vaccineProblem" class="alert">
           <Icon name="alert" :size="18" />
-          <span>{{ vaccineProblem }} <RouterLink v-if="!staffOwnerId" :to="`/pets/${pet.id}`">Update {{ pet.name }}'s profile</RouterLink></span>
+          <span>{{ vaccineProblem }} <RouterLink v-if="!staff" :to="`/pets/${pet.id}`">Update {{ pet.name }}'s profile</RouterLink></span>
         </p>
         <p v-if="availability.error.value" class="alert">{{ availability.error.value }}</p>
         <div class="time-layout">
@@ -403,7 +418,7 @@ function bookAnother() {
               :day="dayInfo"
               :selected="time"
               :loading="availability.loading.value && !dayInfo"
-              :waitlist="!staffOwnerId"
+              :waitlist="!staff"
               @select="time = $event"
               @waitlist="waitlistOpen = true"
             />

@@ -4,11 +4,9 @@ import { PET_SIZES } from '@shared/types';
 import { SIZE_HINTS, SIZE_LABELS } from '@shared/format';
 import ServiceMenu from '@/components/ServiceMenu.vue';
 import { useCatalog } from '@/stores/catalog';
-import { useSession } from '@/stores/session';
 
 const catalog = useCatalog();
-const session = useSession();
-const bookHref = (s: Service) => (session.isLoggedIn ? `/book?serviceId=${s.id}` : session.loginUrl(`/book?serviceId=${s.id}`));
+const bookHref = (s: Service) => `/book?serviceId=${s.id}`;
 </script>
 
 <template>
@@ -33,8 +31,7 @@ const bookHref = (s: Service) => (session.isLoggedIn ? `/book?serviceId=${s.id}`
     </section>
 
     <div class="row">
-      <a v-if="!session.isLoggedIn" :href="session.loginUrl('/book')" class="btn btn-primary">Sign in to book</a>
-      <RouterLink v-else to="/book" class="btn btn-primary">Book a groom</RouterLink>
+      <RouterLink to="/book" class="btn btn-primary">Book a groom</RouterLink>
       <RouterLink to="/availability" class="btn">See open times</RouterLink>
     </div>
   </div>

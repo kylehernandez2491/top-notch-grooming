@@ -3,15 +3,13 @@ import type { AddOn, BusinessSettings, Service } from '../shared/types';
 import { defaultAddOns, defaultServices, defaultSettings, MENU_VERSION } from './seed';
 
 /**
- * Containers
- *  - owners   (pk /ownerId): owner profile + that owner's pets, so "my account" is one partition.
+ * Containers (owner profiles and pets live on the owner's device; each appointment carries a copy)
  *  - bookings (pk /day):     appointments, slot locks, a per-day summary and waitlist entries.
  *                            Same partition => a transactional batch can create an appointment and
  *                            every lock it needs atomically (no double booking, ever).
  *  - catalog  (pk /kind):    settings, services, add-ons and closures.
  */
 export interface Containers {
-  owners: Container;
   bookings: Container;
   catalog: Container;
 }
@@ -22,15 +20,15 @@ const bookingsIndexing: IndexingPolicy = {
   indexingMode: 'consistent',
   automatic: true,
   includedPaths: [{ path: '/*' }],
-  // Pet photos and free-text notes are never filtered on — skip them to save RU on writes.
-  excludedPaths: [{ path: '/notes/?' }, { path: '/staffNotes/?' }, { path: '/history/*' }, { path: '/reportCard/*' }, { path: '/"_etag"/?' }],
-};
-
-const ownersIndexing: IndexingPolicy = {
-  indexingMode: 'consistent',
-  automatic: true,
-  includedPaths: [{ path: '/*' }],
-  excludedPaths: [{ path: '/photo/?' }, { path: '/medicalNotes/?' }, { path: '/behaviorNotes/?' }, { path: '/"_etag"/?' }],
+  // Pet profiles and free-text notes are never filtered on — skip them to save RU on writes.
+  excludedPaths: [
+    { path: '/notes/?' },
+    { path: '/staffNotes/?' },
+    { path: '/history/*' },
+    { path: '/reportCard/*' },
+    { path: '/pet/*' },
+    { path: '/"_etag"/?' },
+  ],
 };
 
 let ready: Promise<Containers> | undefined;
@@ -62,16 +60,11 @@ async function init(): Promise<Containers> {
   const db = client.database(DATABASE);
 
   if (process.env.COSMOS_SKIP_INIT === 'true') {
-    return { owners: db.container('owners'), bookings: db.container('bookings'), catalog: db.container('catalog') };
+    return { bookings: db.container('bookings'), catalog: db.container('catalog') };
   }
 
   const { database } = await client.databases.createIfNotExists({ id: DATABASE });
-  const [owners, bookings, catalog] = await Promise.all([
-    database.containers.createIfNotExists({
-      id: 'owners',
-      partitionKey: { paths: ['/ownerId'] },
-      indexingPolicy: ownersIndexing,
-    }),
+  const [bookings, catalog] = await Promise.all([
     database.containers.createIfNotExists({
       id: 'bookings',
       partitionKey: { paths: ['/day'] },
@@ -81,7 +74,7 @@ async function init(): Promise<Containers> {
     database.containers.createIfNotExists({ id: 'catalog', partitionKey: { paths: ['/kind'] } }),
   ]);
 
-  const containers = { owners: owners.container, bookings: bookings.container, catalog: catalog.container };
+  const containers = { bookings: bookings.container, catalog: catalog.container };
   await seedCatalog(containers.catalog);
   return containers;
 }

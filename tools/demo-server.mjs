@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
  * Demo server: serves the built front end with an in-memory API so you can click through the whole
- * app (owner and staff views) without Azure, Cosmos DB or Entra. It reuses the real availability
- * engine from api/dist, so the calendar behaves exactly like production.
+ * app (owner and staff views) without Azure or Cosmos DB. It reuses the real availability engine and
+ * booking helpers from api/dist, so the calendar behaves exactly like production.
  *
  *   npm run build && npm --prefix api run build && npm run demo
- *   open http://localhost:4280/?as=owner     (or ?as=admin, ?as=guest, ?as=new for a first sign-in)
+ *   open http://localhost:4280/?as=owner     a returning customer: details and pets saved in this browser
+ *        http://localhost:4280/?as=guest     a first visit: nothing saved, booking starts with "Your details"
+ *        http://localhost:4280/?as=admin     the groomer, signed in to the staff portal
  *
  * Nothing here is deployed; data resets when the process stops.
  */
@@ -18,17 +20,23 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(path.join(root, 'api', 'package.json'));
-const engine = require('./dist/src/lib/availability.js');
-const seed = require('./dist/src/lib/seed.js');
-const fmt = require('./dist/src/shared/format.js');
-const { DateTime } = require('luxon');
-
 const PORT = Number(process.env.PORT ?? 4280);
 const dist = path.join(root, 'dist');
 if (!existsSync(dist) || !existsSync(path.join(root, 'api', 'dist'))) {
   console.error('Build first: npm run build && npm --prefix api run build');
   process.exit(1);
 }
+
+const engine = require('./dist/src/lib/availability.js');
+const booking = require('./dist/src/lib/booking.js');
+const deviceLib = require('./dist/src/lib/device.js');
+const seed = require('./dist/src/lib/seed.js');
+const fmt = require('./dist/src/shared/format.js');
+const { DateTime } = require('luxon');
+
+// Must match STORAGE_KEY in src/stores/account.ts and DEVICE_COOKIE in api/src/lib/device.ts.
+const STORAGE_KEY = 'topnotch.owner.v1';
+const DEVICE_COOKIE = deviceLib.DEVICE_COOKIE;
 
 // ---------- seed data ----------
 const settings = seed.defaultSettings();
@@ -43,46 +51,62 @@ const nextWeekday = (iso, from = 1) => {
   return d.toISODate();
 };
 const nowIso = () => new Date().toISOString();
+const toUtc = (d, t) => DateTime.fromISO(`${d}T${t}`, { zone: tz }).toUTC().toISO();
 
 const closures = [{ id: 'c1', kind: 'closure', date: nextWeekday(4, 15), reason: 'Grooming seminar', createdAt: nowIso() }];
 
-const OWNER = 'owner-sam';
-const profiles = new Map([
-  [OWNER, { id: OWNER, type: 'profile', ownerId: OWNER, email: 'sam@example.com', displayName: 'Sam Reyes', phone: '0917 201 3344', address: '12 Mabini Street, Barangay Uno, Sample City', emailReminders: true, emailMarketing: false, onboarded: true, noShowCount: 0, createdAt: day(-200) + 'T15:00:00.000Z', updatedAt: nowIso() }],
-  ['owner-ana', { id: 'owner-ana', type: 'profile', ownerId: 'owner-ana', email: 'ana@example.com', displayName: 'Ana Santos', phone: '0918 404 1188', address: '7 Rizal Avenue, Barangay Dos, Sample City', emailReminders: true, emailMarketing: true, onboarded: true, noShowCount: 1, createdAt: day(-20) + 'T15:00:00.000Z', updatedAt: nowIso() }],
-  ['owner-dev', { id: 'owner-dev', type: 'profile', ownerId: 'owner-dev', email: 'dev@example.com', displayName: 'Dev Mendoza', phone: '0922 777 0102', address: '30 Luna Street, Barangay Tres, Sample City', emailReminders: false, emailMarketing: false, onboarded: true, noShowCount: 0, createdAt: day(-90) + 'T15:00:00.000Z', updatedAt: nowIso() }],
-]);
-
-// ?as=new signs in as someone who hasn't filled in their details yet, to see the welcome screen.
-const newcomer = { id: 'owner-new', type: 'profile', ownerId: 'owner-new', email: 'jo@example.com', displayName: 'jo', emailReminders: true, emailMarketing: false, onboarded: false, noShowCount: 0, createdAt: nowIso(), updatedAt: nowIso() };
+/** Each demo client booked from their own phone; `device` is the key in that phone's cookie. */
+const clients = {
+  sam: { device: 'demo-sam', displayName: 'Sam Reyes', phone: '0917 201 3344', email: 'sam@example.com', address: '12 Mabini Street, Barangay Uno, Sample City', emailReminders: true },
+  ana: { device: 'demo-ana', displayName: 'Ana Santos', phone: '0918 404 1188', email: 'ana@example.com', address: '7 Rizal Avenue, Barangay Dos, Sample City', emailReminders: true },
+  dev: { device: 'demo-dev', displayName: 'Dev Mendoza', phone: '0922 777 0102', email: 'dev@example.com', address: '30 Luna Street, Barangay Tres, Sample City', emailReminders: false },
+};
+const ownerDetails = ({ device: _device, ...owner }) => owner;
+const ownerIdOf = (deviceKey) => `d-${deviceKey}`;
 
 const vax = (months) => [{ name: 'Rabies', expiresOn: DateTime.fromISO(today).plus({ months }).toISODate() }, { name: 'DHPP', expiresOn: DateTime.fromISO(today).plus({ months: months + 2 }).toISODate() }];
 const pets = [
-  { id: 'p-biscuit', type: 'pet', ownerId: OWNER, name: 'Biscuit', species: 'dog', breed: 'Pembroke Welsh Corgi', size: 'medium', weightKg: 12, birthday: '2021-04-02', sex: 'male', temperament: 'friendly', behaviorNotes: 'Sings during the blow-dry.', groomingPreferences: 'Keep the butt fluff, tidy feet.', vaccinations: vax(8), createdAt: nowIso(), updatedAt: nowIso() },
-  { id: 'p-juniper', type: 'pet', ownerId: OWNER, name: 'Juniper', species: 'cat', breed: 'Maine Coon', size: 'small', weightKg: 6.5, temperament: 'nervous', allergies: 'Oatmeal shampoo', vaccinations: [{ name: 'Rabies', expiresOn: day(20) }], createdAt: nowIso(), updatedAt: nowIso() },
-  { id: 'p-koda', type: 'pet', ownerId: 'owner-ana', name: 'Koda', species: 'dog', breed: 'Siberian Husky', size: 'husky_chow', weightKg: 24, temperament: 'calm', vaccinations: vax(5), createdAt: nowIso(), updatedAt: nowIso() },
-  { id: 'p-pepper', type: 'pet', ownerId: 'owner-dev', name: 'Pepper', species: 'dog', breed: 'Miniature Schnauzer', size: 'small', temperament: 'reactive', behaviorNotes: 'Muzzle for nails', vaccinations: vax(3), createdAt: nowIso(), updatedAt: nowIso() },
+  { client: 'sam', id: 'pet-biscuit', name: 'Biscuit', species: 'dog', breed: 'Pembroke Welsh Corgi', size: 'medium', weightKg: 12, birthday: '2021-04-02', sex: 'male', temperament: 'friendly', behaviorNotes: 'Sings during the blow-dry.', groomingPreferences: 'Keep the butt fluff, tidy feet.', vaccinations: vax(8) },
+  { client: 'sam', id: 'pet-juniper', name: 'Juniper', species: 'cat', breed: 'Maine Coon', size: 'small', weightKg: 6.5, temperament: 'nervous', allergies: 'Oatmeal shampoo', vaccinations: [{ name: 'Rabies', expiresOn: day(20) }] },
+  { client: 'ana', id: 'pet-koda', name: 'Koda', species: 'dog', breed: 'Siberian Husky', size: 'husky_chow', weightKg: 24, temperament: 'calm', vaccinations: vax(5) },
+  { client: 'dev', id: 'pet-pepper', name: 'Pepper', species: 'dog', breed: 'Miniature Schnauzer', size: 'small', temperament: 'reactive', behaviorNotes: 'Muzzle for nails', vaccinations: vax(3) },
 ];
+const bookedPet = ({ client: _client, ...pet }) => pet;
 
-function makeAppointment(petId, d, time, serviceId, extra = {}) {
-  const pet = pets.find((p) => p.id === petId);
-  const profile = profiles.get(pet.ownerId);
+/** What ?as=owner puts in localStorage: Sam's details and pets, as the real app saves them. */
+const samsDevice = {
+  profile: ownerDetails(clients.sam),
+  pets: pets.filter((p) => p.client === 'sam').map((p) => ({ ...bookedPet(p), createdAt: nowIso(), updatedAt: nowIso() })),
+};
+
+/** Same shape as buildAppointment in api/src/lib/booking.ts. */
+function buildAppt({ owner, ownerId, pet, day: d, time, serviceId, addOnIds = [], notes, bookedBy = 'owner', ...extra }) {
   const service = services.find((s) => s.id === serviceId);
-  const chosen = (extra.addOnIds ?? []).map((id) => addOns.find((a) => a.id === id));
+  const chosen = addOnIds.map((id) => addOns.find((a) => a.id === id));
   const duration = fmt.serviceDuration(service, chosen, pet.size);
   const endTime = fmt.addMinutes(time, duration);
-  const toUtc = (t) => DateTime.fromISO(`${d}T${t}`, { zone: tz }).toUTC().toISO();
+  const price = fmt.servicePrice(service, chosen, pet.size);
+  const priceMax = fmt.servicePriceMax(service, chosen, pet.size);
+  const { id: petId, ...details } = pet;
   return {
-    id: extra.id ?? randomUUID(), type: 'appointment', day: d, startTime: time, endTime, startUtc: toUtc(time), endUtc: toUtc(endTime),
-    ownerId: profile.ownerId, ownerName: profile.displayName, ownerEmail: profile.email, ownerPhone: profile.phone,
-    petId, petName: pet.name, petSpecies: pet.species, petSize: pet.size, petBreed: pet.breed,
-    petAlerts: [pet.temperament === 'nervous' || pet.temperament === 'reactive' ? fmt.TEMPERAMENT_LABELS[pet.temperament] : null, pet.allergies ? `Allergies: ${pet.allergies}` : null, pet.behaviorNotes && pet.temperament === 'reactive' ? `Behavior: ${pet.behaviorNotes}` : null].filter(Boolean),
+    id: extra.id ?? randomUUID(), type: 'appointment', day: d, startTime: time, endTime, startUtc: toUtc(d, time), endUtc: toUtc(d, endTime),
+    ownerId, clientKey: deviceLib.clientKeyFor(owner.phone), ownerName: owner.displayName, ownerEmail: owner.email, ownerPhone: owner.phone,
+    ownerAddress: owner.address, ownerEmergencyContact: owner.emergencyContact, emailReminders: owner.emailReminders,
+    petId, petName: pet.name, petSpecies: pet.species, petSize: pet.size, petBreed: pet.breed, petAlerts: booking.petAlerts(pet), pet: details,
+    manageToken: deviceLib.newManageToken(),
     serviceId, serviceName: service.name, addOns: chosen.map((a) => ({ id: a.id, name: a.name, price: a.price, durationMinutes: a.durationMinutes })),
-    durationMinutes: duration, estimatedPrice: fmt.servicePrice(service, chosen, pet.size), estimatedPriceMax: fmt.servicePriceMax(service, chosen, pet.size) > fmt.servicePrice(service, chosen, pet.size) ? fmt.servicePriceMax(service, chosen, pet.size) : undefined, status: extra.status ?? 'booked',
-    notes: extra.notes, history: [{ at: nowIso(), event: 'created', by: 'owner' }],
+    durationMinutes: duration, estimatedPrice: price, estimatedPriceMax: priceMax > price ? priceMax : undefined, status: extra.status ?? 'booked',
+    notes, history: [{ at: nowIso(), event: 'created', by: bookedBy }],
     locks: engine.lockBlocks(fmt.toMinutes(time), duration, settings.bufferMinutes).map(engine.lockId),
-    bookedBy: 'owner', reportCard: extra.reportCard, review: extra.review, finalPrice: extra.finalPrice, createdAt: nowIso(), updatedAt: nowIso(),
+    bookedBy, reportCard: extra.reportCard, review: extra.review, finalPrice: extra.finalPrice,
+    createdAt: `${d < today ? d : today}T01:00:00.000Z`, updatedAt: nowIso(),
   };
+}
+
+function seedAppt(petId, d, time, serviceId, extra = {}) {
+  const pet = pets.find((p) => p.id === petId);
+  const client = clients[pet.client];
+  return buildAppt({ owner: ownerDetails(client), ownerId: ownerIdOf(client.device), pet: bookedPet(pet), day: d, time, serviceId, ...extra });
 }
 
 const workdays = [];
@@ -92,23 +116,24 @@ for (let i = 0; i < 40; i++) {
   if (settings.weeklyHours[wd]) workdays.push(d);
 }
 const appointments = [
-  makeAppointment('p-biscuit', workdays[1], '09:00', 'full-grooming', { id: 'a-next', notes: 'He has a small hot spot on his left hip.' }),
-  makeAppointment('p-juniper', workdays[6], '13:00', 'cat-grooming'),
-  makeAppointment('p-biscuit', day(-42), '10:00', 'full-grooming', {
-    status: 'completed', finalPrice: 90,
+  seedAppt('pet-biscuit', workdays[1], '09:00', 'full-grooming', { id: 'a-next', notes: 'He has a small hot spot on his left hip.' }),
+  seedAppt('pet-juniper', workdays[6], '13:00', 'cat-grooming'),
+  seedAppt('pet-biscuit', day(-42), '10:00', 'full-grooming', {
+    status: 'completed', finalPrice: 600,
     reportCard: { behavior: 'Happy and wiggly, great for nails.', coat: 'Heavy undercoat shedding, skin looks healthy.', notes: 'Full deshed, sanitary trim, tidy feet.', recommendations: 'Brush twice a week during shedding season.', nextVisitWeeks: 6, createdAt: nowIso() },
   }),
-  makeAppointment('p-juniper', day(-30), '11:00', 'cat-grooming', { status: 'completed' }),
+  seedAppt('pet-juniper', day(-30), '11:00', 'cat-grooming', { status: 'completed' }),
+  seedAppt('pet-koda', day(-20), '09:00', 'bath-blow-dry', { status: 'no-show' }),
 ];
 // Fill the shop so the water lines vary from day to day.
-const fillers = [['p-koda', 'full-grooming'], ['p-pepper', 'basic-grooming'], ['p-koda', 'bath-blow-dry'], ['p-pepper', 'bath-blow-dry']];
+const fillers = [['pet-koda', 'full-grooming'], ['pet-pepper', 'basic-grooming'], ['pet-koda', 'bath-blow-dry'], ['pet-pepper', 'bath-blow-dry']];
 workdays.forEach((d, i) => {
   const busy = [3, 1, 2, 3, 4, 3, 1, 5, 2, 0, 4, 2][i % 12];
   const times = ['08:30', '11:00', '13:00', '14:30', '10:00'];
   for (let k = 0; k < busy; k++) {
     const [petId, serviceId] = fillers[(i + k) % fillers.length];
     const todayStatus = ['completed', 'in-progress', 'booked'][k] ?? 'booked';
-    const candidate = makeAppointment(petId, d, times[k], serviceId, { status: d === today ? todayStatus : 'booked' });
+    const candidate = seedAppt(petId, d, times[k], serviceId, { status: d === today ? todayStatus : 'booked' });
     const taken = new Set(appointments.filter((a) => a.day === d && a.status !== 'cancelled').flatMap((a) => a.locks));
     if (!candidate.locks.some((l) => taken.has(l))) appointments.push(candidate);
   }
@@ -116,7 +141,7 @@ workdays.forEach((d, i) => {
 // A full day so the "full" state and waitlist show up.
 const fullDay = workdays[3];
 for (const t of ['08:30', '10:00', '11:30', '13:00', '14:30', '15:45']) {
-  const candidate = makeAppointment('p-pepper', fullDay, t, 'bath-blow-dry');
+  const candidate = seedAppt('pet-pepper', fullDay, t, 'bath-blow-dry');
   const taken = new Set(appointments.filter((a) => a.day === fullDay).flatMap((a) => a.locks));
   if (!candidate.locks.some((l) => taken.has(l))) appointments.push(candidate);
 }
@@ -126,10 +151,11 @@ const waitlist = [];
 // ---------- helpers ----------
 const sorted = (list) => list.slice().sort((a, b) => a.startUtc.localeCompare(b.startUtc));
 const active = (a) => ['booked', 'checked-in', 'in-progress'].includes(a.status);
+const error = (status, message, code) => [status, { error: { message, code } }];
 
 function availability(q, as) {
   const service = services.find((s) => s.id === q.get('serviceId'));
-  if (!service) return [404, { error: { message: 'Unknown service' } }];
+  if (!service) return error(404, 'Unknown service');
   const chosen = (q.get('addOns') ?? '').split(',').filter(Boolean).map((id) => addOns.find((a) => a.id === id));
   const durationMinutes = fmt.serviceDuration(service, chosen, q.get('size') ?? 'medium');
   const from = q.get('from') ?? today;
@@ -145,6 +171,56 @@ function availability(q, as) {
   const first = days.find((d) => d.slots.length);
   return [200, { from, to, timeZone: tz, durationMinutes, days, nextAvailable: first ? { day: first.day, time: first.slots[0].time } : undefined }];
 }
+
+function bookFrom(input, ownerId, bookedBy, as) {
+  const params = { serviceId: input.serviceId, size: input.pet.size, addOns: (input.addOnIds ?? []).join(','), from: input.day, to: input.day };
+  const [, avail] = availability(new URLSearchParams(bookedBy === 'staff' ? { ...params, staff: '1' } : params), as);
+  if (!avail.days[0].slots.some((s) => s.time === input.time)) return error(409, 'Someone just booked that time.', 'slot_taken');
+  const appt = buildAppt({ ...input, ownerId, bookedBy });
+  appointments.push(appt);
+  return [201, { appointments: [appt], skipped: [] }];
+}
+
+/** Owner and staff actions on one appointment, kept simple: no emails, no policy checks. */
+function act(appt, action, input) {
+  if (!action) return [200, appt];
+  if (action === 'ics') return [200, 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', 'text/calendar'];
+  if (action === 'cancel' || (action === 'status' && input.status === 'cancelled')) {
+    Object.assign(appt, { status: 'cancelled', locks: [], cancelReason: input.reason ?? input.note });
+  } else if (action === 'status') {
+    Object.assign(appt, { status: input.status, finalPrice: input.finalPrice ?? appt.finalPrice, noShowExcused: input.status === 'no-show' ? undefined : appt.noShowExcused });
+  } else if (action === 'reschedule') {
+    const endTime = fmt.addMinutes(input.time, appt.durationMinutes);
+    Object.assign(appt, {
+      day: input.day, startTime: input.time, endTime, startUtc: toUtc(input.day, input.time), endUtc: toUtc(input.day, endTime),
+      locks: engine.lockBlocks(fmt.toMinutes(input.time), appt.durationMinutes, settings.bufferMinutes).map(engine.lockId),
+    });
+  } else if (action === 'notes') appt.notes = input.notes;
+  else if (action === 'staff-notes') appt.staffNotes = input.staffNotes;
+  else if (action === 'review') appt.review = { ...input, createdAt: nowIso() };
+  else if (action === 'report-card') appt.reportCard = { ...input, createdAt: nowIso() };
+  appt.updatedAt = nowIso();
+  return [200, appt];
+}
+
+/** Staff "Clients": built from bookings, newest details first, like api/src/functions/admin.ts. */
+function clientSummary(clientKey, list) {
+  const newest = list.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const latest = newest[0];
+  return {
+    clientKey,
+    owner: { displayName: latest.ownerName, phone: latest.ownerPhone, email: latest.ownerEmail, address: latest.ownerAddress, emergencyContact: latest.ownerEmergencyContact, emailReminders: latest.emailReminders },
+    petNames: [...new Map(newest.map((a) => [a.petId, a.petName])).values()],
+    noShows: booking.countNoShows(list),
+    firstVisit: newest[newest.length - 1].createdAt,
+  };
+}
+
+const byClient = () => {
+  const groups = new Map();
+  for (const a of appointments) groups.set(a.clientKey, [...(groups.get(a.clientKey) ?? []), a]);
+  return groups;
+};
 
 function stats(from, to) {
   const list = appointments.filter((a) => a.day >= from && a.day <= to);
@@ -177,87 +253,135 @@ async function body(req) {
   return raw ? JSON.parse(raw) : {};
 }
 
+const readCookie = (req, name) => new RegExp(`(?:^|;\\s*)${name}=([^;]*)`).exec(req.headers.cookie ?? '')?.[1] || undefined;
+const deviceCookie = (key, maxAge = 400 * 24 * 3600) => `${DEVICE_COOKIE}=${key}; Path=/api; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+
 // ---------- API ----------
-async function api(req, url, as) {
+async function api(req, url, as, cookies) {
   const p = url.pathname.replace(/^\/api\//, '');
   const m = req.method;
   const q = url.searchParams;
-  const authed = as !== 'guest';
   const admin = as === 'admin';
   let match;
 
   if (p === 'public/catalog') return [200, { settings, services, addOns, closures, rating: { average: 4.9, count: 38 }, today }];
   if (p === 'public/availability') return availability(q, as);
-  if (!authed) return [401, { error: { message: 'Please sign in.' } }];
 
-  const me = as === 'new' ? newcomer : profiles.get(OWNER);
-  if (p === 'me' && m === 'GET') return [200, { profile: me, roles: admin ? ['authenticated', 'admin'] : ['authenticated'], isAdmin: admin }];
-  if (p === 'me' && m === 'PUT') return [200, { profile: Object.assign(me, await body(req), { onboarded: true }), roles: ['authenticated'], isAdmin: admin }];
-  if (p === 'pets' && m === 'GET') return [200, pets.filter((x) => x.ownerId === OWNER && !x.archived)];
-  if (p === 'pets' && m === 'POST') {
-    const pet = { ...(await body(req)), id: randomUUID(), type: 'pet', ownerId: OWNER, createdAt: nowIso(), updatedAt: nowIso() };
-    pets.push(pet);
-    return [201, pet];
+  // Pet owners: no sign-in, just this browser's device cookie (or the ?t= token from an email link).
+  const deviceKey = readCookie(req, DEVICE_COOKIE);
+  const ownerId = deviceKey ? ownerIdOf(deviceKey) : undefined;
+  const ensureDevice = () => {
+    const key = deviceKey ?? randomUUID();
+    cookies.push(deviceCookie(key));
+    return ownerIdOf(key);
+  };
+  const owns = (a) => (!!ownerId && a.ownerId === ownerId) || q.get('t') === a.manageToken;
+
+  if (p === 'device/forget' && m === 'POST') {
+    cookies.push(deviceCookie('', 0));
+    return [204];
   }
-  if ((match = p.match(/^pets\/([^/]+)$/))) {
-    const pet = pets.find((x) => x.id === match[1]);
-    if (!pet) return [404, { error: { message: 'Pet not found.' } }];
-    if (m === 'PUT') Object.assign(pet, await body(req), { updatedAt: nowIso() });
-    if (m === 'DELETE') pet.archived = true;
-    return m === 'DELETE' ? [204] : [200, pet];
-  }
-  if (p === 'appointments' && m === 'GET') return [200, sorted(appointments.filter((a) => a.ownerId === OWNER))];
-  if (p === 'appointments' && m === 'POST') {
-    const input = await body(req);
-    const [, avail] = availability(new URLSearchParams({ serviceId: input.serviceId, size: pets.find((x) => x.id === input.petId).size, addOns: (input.addOnIds ?? []).join(','), from: input.day, to: input.day }), as);
-    if (!avail.days[0].slots.some((s) => s.time === input.time)) return [409, { error: { message: 'Someone just booked that time.', code: 'slot_taken' } }];
-    const appt = makeAppointment(input.petId, input.day, input.time, input.serviceId, { addOnIds: input.addOnIds, notes: input.notes });
-    appointments.push(appt);
-    return [201, { appointments: [appt], skipped: [] }];
-  }
-  if ((match = p.match(/^(?:staff\/)?appointments\/([^/]+)(?:\/(\w[\w-]*))?$/))) {
+  if (p === 'appointments' && m === 'GET') return [200, ownerId ? sorted(appointments.filter((a) => a.ownerId === ownerId)) : []];
+  if (p === 'appointments' && m === 'POST') return bookFrom(await body(req), ensureDevice(), 'owner', as);
+  if ((match = p.match(/^appointments\/([^/]+)(?:\/(\w[\w-]*))?$/))) {
     const appt = appointments.find((a) => a.id === match[1]);
-    if (!appt) return [404, { error: { message: 'Appointment not found.' } }];
-    const action = match[2];
-    if (action === 'ics') return [200, 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', 'text/calendar'];
-    if (action === 'cancel' || (action === 'status' && (await body(req)).status === 'cancelled')) Object.assign(appt, { status: 'cancelled', locks: [] });
-    return [200, appt];
+    if (!appt) return error(404, 'Appointment not found.');
+    if (!owns(appt) && !admin) return error(403, 'Open this booking from the link in your confirmation email, or call us to change it.');
+    return act(appt, match[2], m === 'GET' ? {} : await body(req));
   }
-  if (p === 'waitlist') return [200, waitlist];
+  if (p === 'waitlist' && m === 'GET') return [200, waitlist.filter((w) => w.ownerId === ownerId)];
+  if (p === 'waitlist' && m === 'POST') {
+    const input = await body(req);
+    const service = services.find((s) => s.id === input.serviceId);
+    const entry = {
+      id: randomUUID(), type: 'waitlist', day: input.day, ownerId: ensureDevice(), ownerName: input.owner.displayName, ownerEmail: input.owner.email,
+      ownerPhone: input.owner.phone, petId: input.pet.id, petName: input.pet.name, serviceId: service.id, serviceName: service.name, window: input.window, createdAt: nowIso(),
+    };
+    waitlist.push(entry);
+    return [201, entry];
+  }
+  if ((match = p.match(/^waitlist\/([^/]+)\/([^/]+)$/)) && m === 'DELETE') {
+    const index = waitlist.findIndex((w) => w.id === match[2] && w.ownerId === ownerId);
+    if (index >= 0) waitlist.splice(index, 1);
+    return [204];
+  }
 
-  if (!admin) return [403, { error: { message: 'Staff access only.' } }];
+  if (!admin) return error(403, 'Staff access only.');
+  if (p === 'staff/appointments' && m === 'POST') {
+    const { ownerId: clientDevice, ...input } = await body(req);
+    return bookFrom(input, clientDevice ?? `s-${randomUUID()}`, 'staff', as);
+  }
+  if ((match = p.match(/^staff\/appointments\/([^/]+)(?:\/(\w[\w-]*))?$/))) {
+    const appt = appointments.find((a) => a.id === match[1]);
+    if (!appt) return error(404, 'Appointment not found.');
+    return act(appt, match[2], m === 'GET' ? {} : await body(req));
+  }
   if (p === 'staff/agenda') {
     const from = q.get('from'), to = q.get('to');
-    return [200, { from, to, appointments: sorted(appointments.filter((a) => a.day >= from && a.day <= to)), waitlist: [], closures: closures.filter((c) => c.date >= from && c.date <= to) }];
+    return [200, {
+      from, to,
+      appointments: sorted(appointments.filter((a) => a.day >= from && a.day <= to)),
+      waitlist: waitlist.filter((w) => w.day >= from && w.day <= to),
+      closures: closures.filter((c) => c.date >= from && c.date <= to),
+    }];
   }
   if (p === 'staff/settings') return [200, settings];
   if ((match = p.match(/^staff\/catalog\/(service|addon|closure)$/))) return [200, { service: services, addon: addOns, closure: closures }[match[1]]];
-  if (p === 'staff/clients') return [200, [...profiles.values()].map((profile) => ({ profile, petCount: pets.filter((x) => x.ownerId === profile.ownerId).length }))];
+  if (p === 'staff/clients') {
+    const term = (q.get('q') ?? '').toLowerCase();
+    const list = [...byClient().entries()].map(([key, rows]) => clientSummary(key, rows));
+    return [200, list
+      .filter((c) => !term || [c.owner.displayName, c.owner.email, c.owner.phone, ...c.petNames].join(' ').toLowerCase().includes(term))
+      .sort((a, b) => a.owner.displayName.localeCompare(b.owner.displayName))];
+  }
+  if ((match = p.match(/^staff\/clients\/([^/]+)\/excuse-no-shows$/))) {
+    const noShows = (byClient().get(decodeURIComponent(match[1])) ?? []).filter((a) => a.status === 'no-show');
+    noShows.forEach((a) => (a.noShowExcused = true));
+    return [200, { excused: noShows.length }];
+  }
   if ((match = p.match(/^staff\/clients\/([^/]+)$/))) {
-    const profile = profiles.get(match[1]);
-    return [200, { profile, pets: pets.filter((x) => x.ownerId === profile.ownerId), appointments: sorted(appointments.filter((a) => a.ownerId === profile.ownerId)) }];
+    const key = decodeURIComponent(match[1]);
+    const rows = byClient().get(key);
+    if (!rows) return error(404, 'Client not found.');
+    const newest = rows.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const petsById = new Map();
+    for (const a of newest) if (!petsById.has(a.petId)) petsById.set(a.petId, { ...a.pet, id: a.petId });
+    return [200, { ...clientSummary(key, rows), ownerId: newest[0].ownerId, pets: [...petsById.values()], appointments: sorted(rows) }];
   }
   if (p === 'staff/stats') return [200, stats(q.get('from'), q.get('to'))];
-  return [404, { error: { message: `Demo server has no handler for ${m} /api/${p}` } }];
+  return error(404, `Demo server has no handler for ${m} /api/${p}`);
 }
 
 // ---------- HTTP ----------
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.txt': 'text/plain' };
 
+/** ?as= sets up this browser before the app starts: what a returning customer's phone would have saved. */
+function demoSetup(as) {
+  if (as === 'owner') return `<script>try{localStorage.setItem(${JSON.stringify(STORAGE_KEY)},${JSON.stringify(JSON.stringify(samsDevice))})}catch(e){}</script>`;
+  if (as === 'guest') return `<script>try{localStorage.removeItem(${JSON.stringify(STORAGE_KEY)})}catch(e){}</script>`;
+  return '';
+}
+
 http
   .createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const cookieAs = /mockas=(\w+)/.exec(req.headers.cookie ?? '')?.[1];
-    const as = url.searchParams.get('as') ?? cookieAs ?? 'guest';
-    if (url.searchParams.get('as')) res.setHeader('Set-Cookie', `mockas=${as}; Path=/`);
+    const asParam = url.searchParams.get('as');
+    const as = asParam ?? readCookie(req, 'mockas') ?? 'guest';
+    const cookies = [];
+    if (asParam) {
+      cookies.push(`mockas=${as}; Path=/`);
+      if (as === 'owner') cookies.push(deviceCookie(clients.sam.device));
+      if (as === 'guest') cookies.push(deviceCookie('', 0));
+    }
 
+    // Only staff sign in. Owners and guests are anonymous, as in production.
     if (url.pathname === '/.auth/me') {
-      const principal = as === 'guest' ? null : { identityProvider: 'entraExternalId', userId: as === 'new' ? 'owner-new' : OWNER, userDetails: as === 'new' ? 'jo@example.com' : 'sam@example.com', userRoles: as === 'admin' ? ['anonymous', 'authenticated', 'admin'] : ['anonymous', 'authenticated'] };
+      const principal = as === 'admin' ? { identityProvider: 'aad', userId: 'staff-1', userDetails: 'groomer@example.com', userRoles: ['anonymous', 'authenticated', 'admin'] } : null;
       res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ clientPrincipal: principal }));
       return;
     }
     if (url.pathname.startsWith('/.auth/login')) {
-      res.writeHead(302, { Location: url.searchParams.get('post_login_redirect_uri') ?? '/', 'Set-Cookie': 'mockas=owner; Path=/' }).end();
+      res.writeHead(302, { Location: url.searchParams.get('post_login_redirect_uri') ?? '/admin', 'Set-Cookie': 'mockas=admin; Path=/' }).end();
       return;
     }
     if (url.pathname.startsWith('/.auth/logout')) {
@@ -266,8 +390,8 @@ http
     }
     if (url.pathname.startsWith('/api/')) {
       try {
-        const [status, payload, type] = await api(req, url, as);
-        res.writeHead(status, { 'Content-Type': type ?? 'application/json' });
+        const [status, payload, type] = await api(req, url, as, cookies);
+        res.writeHead(status, { 'Content-Type': type ?? 'application/json', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) });
         res.end(payload === undefined ? undefined : typeof payload === 'string' ? payload : JSON.stringify(payload));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { message: String(err) } }));
@@ -276,7 +400,11 @@ http
     }
     let file = path.join(dist, decodeURIComponent(url.pathname));
     if (!file.startsWith(dist) || !existsSync(file) || statSync(file).isDirectory()) file = path.join(dist, 'index.html');
-    res.writeHead(200, { 'Content-Type': types[path.extname(file)] ?? 'application/octet-stream' });
-    res.end(readFileSync(file));
+    const headers = { 'Content-Type': types[path.extname(file)] ?? 'application/octet-stream', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) };
+    if (file.endsWith('index.html') && asParam) {
+      res.writeHead(200, headers).end(readFileSync(file, 'utf8').replace('<head>', `<head>${demoSetup(as)}`));
+      return;
+    }
+    res.writeHead(200, headers).end(readFileSync(file));
   })
   .listen(PORT, () => console.log(`Top Notch Dog Grooming demo on http://localhost:${PORT}  (?as=guest | owner | admin)`));

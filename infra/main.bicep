@@ -1,5 +1,7 @@
-// Top Notch Dog Grooming infrastructure: Static Web App (Standard, managed Functions), Cosmos DB (serverless),
-// Azure Communication Services Email (Azure-managed domain), Application Insights.
+// Top Notch Dog Grooming infrastructure: Static Web App (Free, managed Functions), Cosmos DB (serverless),
+// Azure Communication Services Email (Azure-managed domain).
+// Pet owners don't sign in. Staff use the Static Web App's built-in sign-in and get the admin role by
+// invitation (portal: Static Web App → Role management), which the Free plan includes.
 targetScope = 'resourceGroup'
 
 @description('Short prefix for resource names (lowercase letters and numbers).')
@@ -7,7 +9,7 @@ targetScope = 'resourceGroup'
 @maxLength(12)
 param appName string = 'topnotch'
 
-@description('Region for Cosmos DB, Log Analytics and Application Insights.')
+@description('Region for Cosmos DB.')
 param location string = resourceGroup().location
 
 @description('Static Web Apps is offered in a limited set of regions.')
@@ -19,16 +21,6 @@ param location string = resourceGroup().location
   'eastasia'
 ])
 param swaLocation string = 'centralus'
-
-@description('Comma-separated emails that receive the admin (groomer/staff) role at sign-in.')
-param adminEmails string
-
-@description('Application (client) ID of the Entra External ID app registration. Can be set later.')
-param entraClientId string = ''
-
-@secure()
-@description('Client secret of the Entra External ID app registration. Can be set later.')
-param entraClientSecret string = ''
 
 @secure()
 @minLength(24)
@@ -50,29 +42,6 @@ param tags object = {
 
 var suffix = substring(uniqueString(resourceGroup().id), 0, 8)
 var databaseName = 'grooming'
-
-// ---------- Observability ----------
-
-resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: '${appName}-logs-${suffix}'
-  location: location
-  tags: tags
-  properties: {
-    sku: { name: 'PerGB2018' }
-    retentionInDays: 30
-  }
-}
-
-resource insights 'Microsoft.Insights/components@2020-02-02' = {
-  name: '${appName}-ai-${suffix}'
-  location: location
-  tags: tags
-  kind: 'web'
-  properties: {
-    Application_Type: 'web'
-    WorkspaceResourceId: logs.id
-  }
-}
 
 // ---------- Cosmos DB (serverless: pay per request, ideal for a single shop) ----------
 
@@ -111,28 +80,7 @@ resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-11-15
   }
 }
 
-resource ownersContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
-  parent: database
-  name: 'owners'
-  properties: {
-    resource: {
-      id: 'owners'
-      partitionKey: { paths: [ '/ownerId' ], kind: 'Hash', version: 2 }
-      indexingPolicy: {
-        indexingMode: 'consistent'
-        automatic: true
-        includedPaths: [ { path: '/*' } ]
-        excludedPaths: [
-          { path: '/photo/?' }
-          { path: '/medicalNotes/?' }
-          { path: '/behaviorNotes/?' }
-          { path: '/"_etag"/?' }
-        ]
-      }
-    }
-  }
-}
-
+// Owner profiles and pets live on the owner's device; each appointment carries a copy for the groomer.
 resource bookingsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
   parent: database
   name: 'bookings'
@@ -151,6 +99,7 @@ resource bookingsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/c
           { path: '/staffNotes/?' }
           { path: '/history/*' }
           { path: '/reportCard/*' }
+          { path: '/pet/*' }
           { path: '/"_etag"/?' }
         ]
       }
@@ -208,10 +157,11 @@ resource site 'Microsoft.Web/staticSites@2023-12-01' = {
   name: '${appName}-${suffix}'
   location: swaLocation
   tags: tags
-  // Standard is required for custom authentication (Entra External ID) and the rolesSource function.
+  // Free covers managed Functions, built-in staff sign-in and invitation roles. Standard was only
+  // needed for the custom Entra External ID provider, which is gone.
   sku: {
-    name: 'Standard'
-    tier: 'Standard'
+    name: 'Free'
+    tier: 'Free'
   }
   properties: {
     stagingEnvironmentPolicy: 'Enabled'
@@ -226,20 +176,15 @@ resource siteSettings 'Microsoft.Web/staticSites/config@2023-12-01' = {
     COSMOS_ENDPOINT: cosmos.properties.documentEndpoint
     COSMOS_KEY: cosmos.listKeys().primaryMasterKey
     COSMOS_DATABASE: databaseName
-    ADMIN_EMAILS: adminEmails
     JOBS_KEY: jobsKey
     ACS_CONNECTION_STRING: communication.listKeys().primaryConnectionString
     EMAIL_SENDER: 'DoNotReply@${emailDomain.properties.mailFromSenderDomain}'
     STAFF_NOTIFY_EMAIL: staffNotifyEmail
     SHOP_TIME_ZONE: shopTimeZone
     APP_BASE_URL: 'https://${site.properties.defaultHostname}'
-    ENTRA_EXTERNAL_ID_CLIENT_ID: entraClientId
-    ENTRA_EXTERNAL_ID_CLIENT_SECRET: entraClientSecret
-    APPLICATIONINSIGHTS_CONNECTION_STRING: insights.properties.ConnectionString
     REMINDER_LEAD_HOURS: '24'
   }
   dependsOn: [
-    ownersContainer
     bookingsContainer
     catalogContainer
   ]
@@ -247,7 +192,5 @@ resource siteSettings 'Microsoft.Web/staticSites/config@2023-12-01' = {
 
 output staticWebAppName string = site.name
 output staticWebAppHostname string = site.properties.defaultHostname
-output entraRedirectUri string = 'https://${site.properties.defaultHostname}/.auth/login/entraExternalId/callback'
 output cosmosAccountName string = cosmos.name
 output emailSender string = 'DoNotReply@${emailDomain.properties.mailFromSenderDomain}'
-output applicationInsightsName string = insights.name

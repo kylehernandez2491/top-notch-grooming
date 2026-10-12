@@ -3,21 +3,34 @@ import { DateTime } from 'luxon';
 import type { Appointment, BusinessSettings } from '../shared/types';
 import { ACTIVE_STATUSES } from '../shared/types';
 import { serviceDuration } from '../shared/format';
-import { ClientPrincipal, isAdmin } from './auth';
+import { getPrincipal, isAdmin } from './auth';
 import { assertSlotOffered, isLateChange, locksFor, moveAppointment, releaseAppointment } from './booking';
 import { clean, Containers } from './cosmos';
+import { deviceOwnerId, tokenMatches } from './device';
 import { templates, sendEmail } from './email';
-import { baseUrl, conflict, forbidden, HttpError } from './http';
+import { baseUrl, conflict, forbidden, HttpError, query } from './http';
 import { findAppointment, getAddOns, getService, listWaitlist } from './repo';
 import { zonedUtcIso } from './time';
 import { addMinutes } from '../shared/format';
 
 type WithEtag<T> = T & { _etag?: string };
 
-export async function loadAccessibleAppointment(c: Containers, principal: ClientPrincipal, id: string): Promise<WithEtag<Appointment>> {
+/** The owner's way in: the device that booked it, or the manage token (?t=) from an email link. */
+export function ownsAppointment(req: HttpRequest, appointment: Pick<Appointment, 'ownerId' | 'manageToken'>): boolean {
+  const ownerId = deviceOwnerId(req);
+  return (!!ownerId && ownerId === appointment.ownerId) || tokenMatches(query(req, 't'), appointment.manageToken);
+}
+
+/** Loads an appointment for its owner; staff may read it too when allowStaff is set. */
+export async function loadOwnedAppointment(
+  c: Containers,
+  req: HttpRequest,
+  id: string,
+  allowStaff = false,
+): Promise<WithEtag<Appointment>> {
   const appointment = await findAppointment(c, id);
-  if (appointment.ownerId !== principal.userId && !isAdmin(principal)) throw forbidden();
-  return appointment;
+  if (ownsAppointment(req, appointment) || (allowStaff && isAdmin(getPrincipal(req)))) return appointment;
+  throw forbidden('Open this booking from the link in your confirmation email, or call us to change it.');
 }
 
 function stripSystem(a: WithEtag<Appointment>): Appointment {

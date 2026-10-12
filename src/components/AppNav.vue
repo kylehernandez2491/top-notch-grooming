@@ -3,10 +3,12 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import Icon, { type IconName } from './Icon.vue';
+import { useAccount } from '@/stores/account';
 import { useCatalog } from '@/stores/catalog';
 import { useSession } from '@/stores/session';
 
 const session = useSession();
+const account = useAccount();
 const catalog = useCatalog();
 const route = useRoute();
 
@@ -20,14 +22,6 @@ interface NavItem {
 const staffArea = computed(() => route.path.startsWith('/admin'));
 
 const items = computed<NavItem[]>(() => {
-  if (!session.isLoggedIn) {
-    return [
-      { to: '/', label: 'Home', icon: 'home', exact: true },
-      { to: '/services', label: 'Services', icon: 'scissors' },
-      { to: '/availability', label: 'Open times', icon: 'calendar' },
-      { to: '/login', label: 'Sign in', icon: 'user' },
-    ];
-  }
   if (staffArea.value && session.isAdmin) {
     return [
       { to: '/admin', label: 'Today', icon: 'list', exact: true },
@@ -35,6 +29,15 @@ const items = computed<NavItem[]>(() => {
       { to: '/admin/clients', label: 'Clients', icon: 'users' },
       { to: '/admin/shop', label: 'Shop', icon: 'settings' },
       { to: '/admin/reports', label: 'Reports', icon: 'chart' },
+    ];
+  }
+  // First visit on this device: nothing saved yet, so booking starts with the owner's details.
+  if (!account.hasProfile) {
+    return [
+      { to: '/', label: 'Home', icon: 'home', exact: true },
+      { to: '/services', label: 'Services', icon: 'scissors' },
+      { to: '/book', label: 'Book', icon: 'plus' },
+      { to: '/availability', label: 'Open times', icon: 'calendar' },
     ];
   }
   return [
@@ -54,14 +57,14 @@ function active(item: NavItem) {
 <template>
   <header class="topbar">
     <div class="topbar-inner">
-      <RouterLink :to="session.isLoggedIn ? '/dashboard' : '/'" class="brand">
+      <RouterLink :to="account.hasProfile ? '/dashboard' : '/'" class="brand">
         <img class="brand-logo" src="/brand/logo.png" srcset="/brand/logo@2x.png 2x" width="40" height="40" alt="" />
         <span class="brand-name">{{ catalog.settings?.shopName ?? 'Top Notch Dog Grooming' }}</span>
       </RouterLink>
 
       <nav class="desk-nav" aria-label="Main">
         <RouterLink
-          v-for="item in items.filter((i) => i.to !== '/login')"
+          v-for="item in items"
           :key="item.to"
           :to="item.to"
           class="desk-link"
@@ -74,9 +77,9 @@ function active(item: NavItem) {
       <div class="topbar-end">
         <template v-if="session.isAdmin">
           <RouterLink v-if="!staffArea" to="/admin" class="btn btn-sm">Staff</RouterLink>
-          <RouterLink v-else to="/dashboard" class="btn btn-sm">Owner view</RouterLink>
+          <RouterLink v-else to="/" class="btn btn-sm">Public site</RouterLink>
         </template>
-        <a v-if="!session.isLoggedIn" :href="session.loginUrl('/dashboard')" class="btn btn-sm btn-dark top-signin">Sign in</a>
+        <RouterLink v-if="!account.hasProfile && !staffArea" to="/book" class="btn btn-sm btn-dark top-book">Book now</RouterLink>
       </div>
     </div>
   </header>
@@ -223,7 +226,7 @@ function active(item: NavItem) {
 }
 
 @media (max-width: 899px) {
-  .top-signin {
+  .top-book {
     display: none;
   }
 }

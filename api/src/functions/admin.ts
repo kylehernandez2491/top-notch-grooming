@@ -5,11 +5,12 @@ import type {
   AdminStats,
   AgendaResponse,
   Appointment,
+  BookedPet,
   BusinessSettings,
   ClientDetail,
   ClientSummary,
   Closure,
-  OwnerProfile,
+  OwnerDetails,
   Service,
   WaitlistEntry,
   Weekday,
@@ -17,31 +18,30 @@ import type {
 import { ACTIVE_STATUSES, WEEKDAYS } from '../shared/types';
 import { cancelAppointment, rescheduleAppointment } from '../lib/actions';
 import { requireAdmin } from '../lib/auth';
-import { saveAppointment } from '../lib/booking';
+import { book, countNoShows, saveAppointment } from '../lib/booking';
 import { clean, getContainers } from '../lib/cosmos';
 import { sendEmail, templates } from '../lib/email';
 import { badRequest, baseUrl, conflict, created, notFound, query, raw, readBody, route } from '../lib/http';
 import {
+  ClientRow,
   findAppointment,
-  getProfile,
   getSettings,
   invalidateCatalog,
   listAppointmentsInRange,
+  listClientRows,
   listClosures,
-  listOwnerAppointments,
-  listPets,
   loadCatalog,
   queryAll,
 } from '../lib/repo';
 import { addDays, daysBetween, isValidDay, todayIn, weekdayOf } from '../lib/time';
 import {
   addOnInput,
-  clientInput,
   closureInput,
   reportCardInput,
   rescheduleInput,
   serviceInput,
   settingsInput,
+  staffBookingInput,
   staffNotesInput,
   statusInput,
 } from '../lib/validation';
@@ -72,6 +72,21 @@ route('adminAgenda', ['GET'], 'staff/agenda', async (req): Promise<AgendaRespons
   return { from, to, appointments, waitlist: waitlist.map(clean), closures };
 });
 
+/** Phone and walk-in bookings for a client from their history. Bypasses notice and horizon, never overlaps. */
+route('adminBook', ['POST'], 'staff/appointments', async (req, ctx) => {
+  requireAdmin(req);
+  const input = await readBody(req, staffBookingInput);
+  const c = await getContainers();
+  const settings = await getSettings(c);
+  const { ownerId, ...request } = input;
+  const result = await book(c, { request, ownerId: ownerId ?? `s-${randomUUID()}`, settings, actor: { kind: 'staff' } });
+  const appUrl = baseUrl(req);
+  for (const appointment of result.appointments) {
+    await sendEmail(ctx, templates.confirmed(appointment, settings, appUrl));
+  }
+  return created(result);
+});
+
 route('adminAppointmentGet', ['GET'], 'staff/appointments/{id}', async (req) => {
   requireAdmin(req);
   const c = await getContainers();
@@ -95,24 +110,12 @@ route('adminAppointmentStatus', ['POST'], 'staff/appointments/{id}/status', asyn
     ...clean(appointment),
     status: input.status,
     finalPrice: input.status === 'completed' ? input.finalPrice ?? appointment.finalPrice : appointment.finalPrice,
+    // A fresh no-show counts again even if an earlier one on this visit was excused.
+    noShowExcused: input.status === 'no-show' ? undefined : appointment.noShowExcused,
     updatedAt: now,
     history: [...appointment.history, { at: now, event: input.status, by: 'staff', note: input.note }],
   };
-  const saved = await saveAppointment(c.bookings, appointment, next);
-
-  // Keep the owner's no-show tally in step (it drives the online-booking pause).
-  const delta = (input.status === 'no-show' ? 1 : 0) - (appointment.status === 'no-show' ? 1 : 0);
-  if (delta) {
-    const profile = await getProfile(c, appointment.ownerId);
-    if (profile) {
-      await c.owners.items.upsert<OwnerProfile>({
-        ...clean(profile),
-        noShowCount: Math.max(0, profile.noShowCount + delta),
-        updatedAt: now,
-      });
-    }
-  }
-  return saved;
+  return saveAppointment(c.bookings, appointment, next);
 });
 
 route('adminAppointmentNotes', ['PUT'], 'staff/appointments/{id}/staff-notes', async (req) => {
@@ -257,51 +260,88 @@ route('adminCatalogDelete', ['DELETE'], 'staff/catalog/{kind}/{id}', async (req)
   return undefined;
 });
 
-// ---------- clients ----------
+// ---------- clients (built from bookings: there are no client accounts) ----------
+
+/** The owner's details as they gave them on their most recent booking. */
+function ownerFrom(row: ClientRow): OwnerDetails {
+  return {
+    displayName: row.ownerName,
+    phone: row.ownerPhone ?? '',
+    email: row.ownerEmail,
+    address: row.ownerAddress ?? '',
+    emergencyContact: row.ownerEmergencyContact,
+    emailReminders: row.emailReminders !== false,
+  };
+}
+
+function summarise(clientKey: string, rows: ClientRow[]): ClientSummary {
+  const byNewest = rows.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return {
+    clientKey,
+    owner: ownerFrom(byNewest[0]),
+    petNames: [...new Map(byNewest.map((r) => [r.petId, r.petName])).values()],
+    noShows: countNoShows(rows),
+    firstVisit: byNewest[byNewest.length - 1].createdAt,
+  };
+}
+
+function groupByClient<T extends { clientKey: string }>(rows: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) groups.set(row.clientKey, [...(groups.get(row.clientKey) ?? []), row]);
+  return groups;
+}
 
 route('adminClients', ['GET'], 'staff/clients', async (req): Promise<ClientSummary[]> => {
   requireAdmin(req);
   const c = await getContainers();
   const q = (query(req, 'q') ?? '').toLowerCase();
-  const [profiles, pets] = await Promise.all([
-    queryAll<OwnerProfile>(c.owners, 'SELECT * FROM c WHERE c.type = "profile"'),
-    queryAll<{ ownerId: string; name: string }>(
-      c.owners,
-      'SELECT c.ownerId, c.name FROM c WHERE c.type = "pet" AND (NOT IS_DEFINED(c.archived) OR c.archived = false)',
-    ),
-  ]);
-  const petsByOwner = new Map<string, string[]>();
-  for (const p of pets) petsByOwner.set(p.ownerId, [...(petsByOwner.get(p.ownerId) ?? []), p.name.toLowerCase()]);
-  return profiles
-    .map(clean)
-    .filter((p) => {
+  const clients = [...groupByClient(await listClientRows(c)).entries()].map(([key, rows]) => summarise(key, rows));
+  return clients
+    .filter(({ owner, petNames }) => {
       if (!q) return true;
-      const haystack = [p.displayName, p.email, p.phone ?? '', ...(petsByOwner.get(p.ownerId) ?? [])].join(' ').toLowerCase();
-      return haystack.includes(q);
+      return [owner.displayName, owner.email, owner.phone, ...petNames].join(' ').toLowerCase().includes(q);
     })
-    .sort((a, b) => a.displayName.localeCompare(b.displayName))
-    .slice(0, 200)
-    .map((profile) => ({ profile, petCount: petsByOwner.get(profile.ownerId)?.length ?? 0 }));
+    .sort((a, b) => a.owner.displayName.localeCompare(b.owner.displayName))
+    .slice(0, 200);
 });
 
-route('adminClient', ['GET'], 'staff/clients/{ownerId}', async (req): Promise<ClientDetail> => {
+route('adminClient', ['GET'], 'staff/clients/{clientKey}', async (req): Promise<ClientDetail> => {
   requireAdmin(req);
   const c = await getContainers();
-  const profile = await getProfile(c, req.params.ownerId);
-  if (!profile) throw notFound('Client not found.');
-  const [pets, appointments] = await Promise.all([listPets(c, profile.ownerId), listOwnerAppointments(c, profile.ownerId)]);
-  return { profile: clean(profile), pets, appointments };
+  const appointments = await queryAll<Appointment>(c.bookings, 'SELECT * FROM c WHERE c.type = "appointment" AND c.clientKey = @k', [
+    { name: '@k', value: req.params.clientKey },
+  ]);
+  if (!appointments.length) throw notFound('Client not found.');
+  const visits = [...new Map(appointments.map((a) => [a.id, clean(a)])).values()].sort((a, b) => a.startUtc.localeCompare(b.startUtc));
+  const byNewest = visits.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // Each pet's profile as the owner last sent it.
+  const pets = new Map<string, BookedPet>();
+  for (const a of byNewest) {
+    if (!pets.has(a.petId)) {
+      pets.set(a.petId, a.pet ? { ...a.pet, id: a.petId } : { id: a.petId, name: a.petName, species: a.petSpecies, breed: a.petBreed, size: a.petSize, temperament: 'friendly', vaccinations: [] });
+    }
+  }
+  return {
+    ...summarise(req.params.clientKey, visits),
+    ownerId: byNewest.find((a) => a.bookedBy === 'owner')?.ownerId ?? byNewest[0].ownerId,
+    pets: [...pets.values()],
+    appointments: visits,
+  };
 });
 
-route('adminClientUpdate', ['PATCH'], 'staff/clients/{ownerId}', async (req) => {
+/** Forgive a client's no-shows so online booking opens for them again. The visits keep their status. */
+route('adminClientExcuse', ['POST'], 'staff/clients/{clientKey}/excuse-no-shows', async (req) => {
   requireAdmin(req);
-  const { noShowCount } = await readBody(req, clientInput);
   const c = await getContainers();
-  const profile = await getProfile(c, req.params.ownerId);
-  if (!profile) throw notFound('Client not found.');
-  const next = { ...clean(profile), noShowCount, updatedAt: new Date().toISOString() };
-  await c.owners.items.upsert(next);
-  return next;
+  const noShows = await queryAll<Appointment & { _etag?: string }>(
+    c.bookings,
+    'SELECT * FROM c WHERE c.type = "appointment" AND c.clientKey = @k AND c.status = "no-show"',
+    [{ name: '@k', value: req.params.clientKey }],
+  );
+  for (const a of noShows.filter((x) => !x.noShowExcused)) {
+    await saveAppointment(c.bookings, a, { ...clean(a), noShowExcused: true, updatedAt: new Date().toISOString() });
+  }
+  return { excused: noShows.length };
 });
 
 // ---------- reporting ----------
@@ -312,13 +352,11 @@ route('adminStats', ['GET'], 'staff/stats', async (req): Promise<AdminStats> => 
   const settings = await getSettings(c);
   const today = todayIn(settings.timeZone);
   const { from, to } = range(req, DateTime.fromISO(today).startOf('month').toISODate()!, 30, 400);
-  const [appointments, newClients] = await Promise.all([
-    listAppointmentsInRange(c, from, to),
-    queryAll<number>(c.owners, 'SELECT VALUE COUNT(1) FROM c WHERE c.type = "profile" AND c.createdAt >= @f AND c.createdAt < @t', [
-      { name: '@f', value: from },
-      { name: '@t', value: addDays(to, 1) },
-    ]),
-  ]);
+  const [appointments, clientRows] = await Promise.all([listAppointmentsInRange(c, from, to), listClientRows(c)]);
+  // A new client is one whose first booking was made in the range.
+  const newClients = [...groupByClient(clientRows).entries()]
+    .map(([key, rows]) => summarise(key, rows).firstVisit.slice(0, 10))
+    .filter((first) => first >= from && first <= to).length;
   const nowIso = new Date().toISOString();
   const count = (status: Appointment['status']) => appointments.filter((a) => a.status === status).length;
   const completed = appointments.filter((a) => a.status === 'completed');
@@ -357,7 +395,7 @@ route('adminStats', ['GET'], 'staff/stats', async (req): Promise<AdminStats> => 
     rating: reviews.length
       ? { average: Math.round((reviews.reduce((s, r) => s + r, 0) / reviews.length) * 10) / 10, count: reviews.length }
       : undefined,
-    newClients: newClients[0] ?? 0,
+    newClients,
     topServices: [...services.values()].sort((a, b) => b.count - a.count).slice(0, 6),
     byWeekday: WEEKDAYS.map((weekday) => ({ weekday, count: byWeekday.get(weekday) ?? 0 })),
     byHour: [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([hour, n]) => ({ hour, count: n })),

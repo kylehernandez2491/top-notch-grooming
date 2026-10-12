@@ -95,15 +95,20 @@ function textDetails(a: Appointment) {
   return `${a.petName} — ${a.serviceName}\n${friendlyDate(a.day)} at ${formatTime12(a.startTime)} (pick-up ~${formatTime12(a.endTime)})\nEstimated ${formatPriceRange(a.estimatedPrice, a.estimatedPriceMax)}, pay at pick-up.`;
 }
 
+/** The owner's private link to a booking. It works on any device, so it's only ever sent to the owner. */
+export function manageUrl(a: Pick<Appointment, 'id' | 'manageToken'>, appUrl: string): string {
+  return `${appUrl}/appointments/${a.id}?t=${encodeURIComponent(a.manageToken)}`;
+}
+
 function ics(a: Appointment, settings: BusinessSettings, appUrl: string, method: 'REQUEST' | 'CANCEL' = 'REQUEST') {
   return buildIcs({
     uid: `${a.id}@topnotchgrooming`,
     startUtc: a.startUtc,
     endUtc: a.endUtc,
     summary: `${a.petName}: ${a.serviceName} at ${settings.shopName}`,
-    description: `Manage your booking: ${appUrl}/appointments/${a.id}`,
+    description: `Manage your booking: ${manageUrl(a, appUrl)}`,
     location: settings.address,
-    url: `${appUrl}/appointments/${a.id}`,
+    url: manageUrl(a, appUrl),
     method,
     sequence: Math.floor(Date.now() / 1000),
   });
@@ -117,10 +122,10 @@ export const templates = {
       subject: `You're booked: ${a.petName} on ${friendlyDate(a.day)} at ${formatTime12(a.startTime)}`,
       html: layout(s, appUrl,
         `See you soon, ${a.petName}! 🐾`,
-        `${details(a)}<p style="font-size:14px;color:#545454;margin-top:18px">${esc(s.policies.cancellation)}</p>`,
-        { label: 'View or change booking', url: `${appUrl}/appointments/${a.id}` },
+        `${details(a)}<p style="font-size:14px;color:#545454;margin-top:18px">${esc(s.policies.cancellation)}</p><p style="font-size:14px;color:#545454">Keep this email: the button below opens your booking on any phone or computer.</p>`,
+        { label: 'View or change booking', url: manageUrl(a, appUrl) },
       ),
-      text: `You're booked!\n\n${textDetails(a)}\n\nManage: ${appUrl}/appointments/${a.id}`,
+      text: `You're booked!\n\n${textDetails(a)}\n\nManage (keep this link private): ${manageUrl(a, appUrl)}`,
       ics: ics(a, s, appUrl),
     };
   },
@@ -130,7 +135,7 @@ export const templates = {
       to: a.ownerEmail,
       toName: a.ownerName,
       subject: `New time for ${a.petName}: ${friendlyDate(a.day)} at ${formatTime12(a.startTime)}`,
-      html: layout(s, appUrl, 'Your appointment has moved', details(a), { label: 'View booking', url: `${appUrl}/appointments/${a.id}` }),
+      html: layout(s, appUrl, 'Your appointment has moved', details(a), { label: 'View booking', url: manageUrl(a, appUrl) }),
       text: `Your appointment has moved.\n\n${textDetails(a)}`,
       ics: ics(a, s, appUrl),
     };
@@ -159,9 +164,9 @@ export const templates = {
       html: layout(s, appUrl,
         `Pamper day for ${a.petName} 🛁`,
         `${details(a)}<p style="font-size:14px;color:#545454;margin-top:18px">Tip: a short walk before drop-off helps nervous pets settle. ${esc(s.policies.lateArrival)}</p>`,
-        { label: 'Need to change it?', url: `${appUrl}/appointments/${a.id}` },
+        { label: 'Need to change it?', url: manageUrl(a, appUrl) },
       ),
-      text: `Reminder: ${textDetails(a)}\n\nChange or cancel: ${appUrl}/appointments/${a.id}`,
+      text: `Reminder: ${textDetails(a)}\n\nChange or cancel: ${manageUrl(a, appUrl)}`,
     };
   },
 
@@ -188,9 +193,9 @@ export const templates = {
       html: layout(s, appUrl,
         `${a.petName} was a star ⭐`,
         `<p>The groomer left notes about today's visit, plus a recommendation for the next one.</p>`,
-        { label: 'Read the report card', url: `${appUrl}/appointments/${a.id}` },
+        { label: 'Read the report card', url: manageUrl(a, appUrl) },
       ),
-      text: `${a.petName}'s report card is ready: ${appUrl}/appointments/${a.id}`,
+      text: `${a.petName}'s report card is ready: ${manageUrl(a, appUrl)}`,
     };
   },
 

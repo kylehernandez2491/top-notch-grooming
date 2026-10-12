@@ -46,17 +46,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The OIDC metadata URL can't come from an app setting, so it is injected at deploy time.
-      - name: Inject Entra External ID metadata URL
-        env:
-          WELL_KNOWN: ${{ vars.ENTRA_WELL_KNOWN_URL }}
-        run: |
-          if [ -z "$WELL_KNOWN" ]; then
-            echo "::error::Set the ENTRA_WELL_KNOWN_URL repository variable (see README, step 3)."
-            exit 1
-          fi
-          sed -i "s|__ENTRA_WELL_KNOWN_URL__|${WELL_KNOWN}|" staticwebapp.config.json
-
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
