@@ -10,7 +10,7 @@ import ServiceMenu from '@/components/ServiceMenu.vue';
 import StarRating from '@/components/StarRating.vue';
 import { useCatalog } from '@/stores/catalog';
 import { addDays, dayNumber, weekdayShort } from '@/utils/dates';
-import { mapsUrl, telUrl } from '@/utils/device';
+import { shopDirectionsUrl, telUrl } from '@/utils/device';
 
 const catalog = useCatalog();
 const week = ref<AvailabilityResponse | null>(null);
@@ -129,7 +129,7 @@ const serviceBookHref = (s: Service) => `/book?serviceId=${s.id}`;
         <h2 class="info-title">Find us</h2>
         <p>{{ catalog.settings.address }}</p>
         <div class="row">
-          <a class="btn btn-sm" :href="mapsUrl(catalog.settings.address)" target="_blank" rel="noopener"><Icon name="map" :size="18" /> Directions</a>
+          <a class="btn btn-sm" :href="shopDirectionsUrl()" target="_blank" rel="noopener"><Icon name="map" :size="18" /> Directions</a>
           <a class="btn btn-sm" :href="telUrl(catalog.settings.phone)"><Icon name="phone" :size="18" /> {{ catalog.settings.phone }}</a>
         </div>
       </div>

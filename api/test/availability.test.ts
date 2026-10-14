@@ -35,16 +35,21 @@ describe('lockBlocks', () => {
 });
 
 describe('dayAvailability', () => {
-  it('offers every 30-minute start that fits, skipping the lunch break', () => {
+  it('offers every 30-minute start that fits the daily opening hours', () => {
     const day = dayAvailability(TUE, ctx());
     expect(day.status).toBe('open');
-    // 08:30–17:00 with a 12:30–13:00 break, 60-minute service
-    expect(times(day)).toEqual(['08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00']);
-    expect(day.slots[0].endTime).toBe('09:30');
+    // 08:00–17:00 with a 60-minute service
+    expect(times(day)).toEqual(['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00']);
+    expect(day.slots[0].endTime).toBe('09:00');
   });
 
-  it('is closed on days without hours and on full-day closures', () => {
-    expect(dayAvailability('2026-10-12', ctx()).status).toBe('closed'); // Monday
+  it('opens every day from 08:00 to 17:00', () => {
+    for (const hours of Object.values(defaultSettings().weeklyHours)) {
+      expect(hours).toEqual({ open: '08:00', close: '17:00', breaks: [] });
+    }
+  });
+
+  it('is closed on full-day closures', () => {
     const closures: Closure[] = [{ id: 'x', kind: 'closure', date: TUE, reason: 'Staff training', createdAt: '' }];
     const day = dayAvailability(TUE, ctx({ closures }));
     expect(day).toMatchObject({ status: 'closed', reason: 'Staff training' });
@@ -110,7 +115,7 @@ describe('dayAvailability', () => {
     ];
     expect(times(dayAvailability('2026-10-12', ctx({ specialHours })))).toEqual(['10:00', '10:30', '11:00']);
     expect(times(dayAvailability(TUE, ctx({ specialHours })))).toEqual(['13:00', '13:30', '14:00']);
-    expect(times(dayAvailability('2026-10-14', ctx({ specialHours })))[0]).toBe('08:30');
+    expect(times(dayAvailability('2026-10-14', ctx({ specialHours })))[0]).toBe('08:00');
     const closures: Closure[] = [{ id: 'x', kind: 'closure', date: TUE, reason: 'Typhoon', createdAt: '' }];
     expect(dayAvailability(TUE, ctx({ specialHours, closures }))).toMatchObject({ status: 'closed', reason: 'Typhoon' });
   });

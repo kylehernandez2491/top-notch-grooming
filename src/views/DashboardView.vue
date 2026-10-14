@@ -9,7 +9,7 @@ import PetAvatar from '@/components/PetAvatar.vue';
 import { useAccount } from '@/stores/account';
 import { useCatalog } from '@/stores/catalog';
 import { addDays, longDay, relativeDay, shortDay } from '@/utils/dates';
-import { mapsUrl } from '@/utils/device';
+import { shopDirectionsUrl } from '@/utils/device';
 
 const account = useAccount();
 const catalog = useCatalog();
@@ -71,7 +71,7 @@ function suggestedDay(appointmentDay: string, weeks?: number) {
       </div>
       <div class="next-actions">
         <a class="btn btn-sm" :href="api.icsUrl(next.id)"><Icon name="calendar" :size="18" /> Add to calendar</a>
-        <a v-if="catalog.settings" class="btn btn-sm" :href="mapsUrl(catalog.settings.address)" target="_blank" rel="noopener">
+        <a v-if="catalog.settings" class="btn btn-sm" :href="shopDirectionsUrl()" target="_blank" rel="noopener">
           <Icon name="map" :size="18" /> Directions
         </a>
         <RouterLink class="btn btn-sm" :to="`/appointments/${next.id}/reschedule`"><Icon name="clock" :size="18" /> Change time</RouterLink>

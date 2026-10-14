@@ -91,7 +91,8 @@ async function seedCatalog(catalog: Container) {
 /**
  * Brings a database seeded with an older built-in menu up to MENU_VERSION, once. A service is only
  * replaced if it is still the untouched dollar-priced original; anything the groomer edited is kept and
- * just gains the new "what's included" list. Missing built-in add-ons are added.
+ * just gains the new "what's included" list. Missing built-in add-ons are added, and the previous
+ * default shop address and hours are updated to the current settings.
  */
 async function upgradeMenu(catalog: Container, settings: BusinessSettings) {
   if ((settings.menuVersion ?? 1) >= MENU_VERSION) return;
@@ -105,7 +106,36 @@ async function upgradeMenu(catalog: Container, settings: BusinessSettings) {
     const { resource: existing } = await catalog.item(addOn.id, 'addon').read<AddOn>();
     if (!existing) await catalog.items.upsert(addOn);
   }
-  await catalog.items.upsert({ ...clean(settings), menuVersion: MENU_VERSION });
+  const defaults = defaultSettings();
+  const weeklyHours = { ...settings.weeklyHours };
+  const previousHours: BusinessSettings['weeklyHours'] = {
+    mon: null,
+    tue: { open: '08:30', close: '17:00', breaks: [{ start: '12:30', end: '13:00' }] },
+    wed: { open: '08:30', close: '17:00', breaks: [{ start: '12:30', end: '13:00' }] },
+    thu: { open: '08:30', close: '17:00', breaks: [{ start: '12:30', end: '13:00' }] },
+    fri: { open: '08:30', close: '17:00', breaks: [{ start: '12:30', end: '13:00' }] },
+    sat: { open: '08:00', close: '14:00', breaks: [] },
+    sun: null,
+  };
+  for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const) {
+    const current = weeklyHours[day];
+    const previous = previousHours[day];
+    const isUnchangedDefault = current === null
+      ? previous === null
+      : previous !== null &&
+        current.open === previous.open &&
+        current.close === previous.close &&
+        current.breaks.length === previous.breaks.length &&
+        current.breaks.every((b, index) => b.start === previous.breaks[index]?.start && b.end === previous.breaks[index]?.end);
+    if (isUnchangedDefault) weeklyHours[day] = { open: '08:00', close: '17:00', breaks: [] };
+  }
+  const updatedSettings = {
+    ...clean(settings),
+    address: settings.address === 'Purok 3, Calipahan, Talavera, Nueva Ecija, Philippines' ? defaults.address : settings.address,
+    weeklyHours,
+    menuVersion: MENU_VERSION,
+  };
+  await catalog.items.upsert(updatedSettings);
 }
 
 /** Strip Cosmos system properties before returning documents to clients. */

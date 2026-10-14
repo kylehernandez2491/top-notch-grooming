@@ -132,7 +132,7 @@ npm run build && npm --prefix api run build
 npm run demo
 ```
 
-Open `http://localhost:4280/?as=owner` for a returning customer (details and pets saved in the browser), `?as=guest` for a first visit, or `?as=admin` for the staff portal. The demo uses the real availability engine with sample data held in memory.
+Open the URL printed in the terminal with `?as=owner` for a returning customer (details and pets saved in the browser), `?as=guest` for a first visit, or `?as=admin` for the staff portal. The demo uses the real availability engine with sample data held in memory. If the default port 4280 is already in use, the demo tries the next available port automatically.
 
 ## Run the full stack locally
 

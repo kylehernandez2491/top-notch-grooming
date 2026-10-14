@@ -403,7 +403,7 @@ function demoSetup(as) {
   return '';
 }
 
-http
+const server = http
   .createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const asParam = url.searchParams.get('as');
@@ -447,5 +447,32 @@ http
       return;
     }
     res.writeHead(200, headers).end(readFileSync(file));
-  })
-  .listen(PORT, () => console.log(`Top Notch Dog Grooming demo on http://localhost:${PORT}  (?as=guest | owner | admin)`));
+  });
+
+async function listen(port) {
+  try {
+    await new Promise((resolve, reject) => {
+      const onError = (err) => {
+        server.removeListener('listening', onListening);
+        reject(err);
+      };
+      const onListening = () => {
+        server.removeListener('error', onError);
+        resolve();
+      };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(port);
+    });
+    console.log(`Top Notch Dog Grooming demo on http://localhost:${port}  (?as=guest | owner | admin)`);
+  } catch (err) {
+    if (err.code === 'EADDRINUSE' && !process.env.PORT && port < 65535) {
+      console.warn(`Port ${port} is already in use; trying ${port + 1}.`);
+      return listen(port + 1);
+    }
+    console.error(`Could not start the demo server on port ${port}: ${err.message}`);
+    process.exitCode = 1;
+  }
+}
+
+listen(PORT);

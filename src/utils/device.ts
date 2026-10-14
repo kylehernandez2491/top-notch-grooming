@@ -37,4 +37,5 @@ export function buzz(pattern: number | number[] = 12) {
 }
 
 export const mapsUrl = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+export const shopDirectionsUrl = () => mapsUrl('Top Notch Dog Grooming - Talavera Branch, Talavera, Nueva Ecija');
 export const telUrl = (phone: string) => `tel:${phone.replace(/[^\d+]/g, '')}`;

@@ -72,33 +72,28 @@ describe('chat assistant: reading questions', () => {
 describe('chat assistant: shop hours on a day', () => {
   const weekly = defaultSettings().weeklyHours;
 
-  it('knows when the shop is open, on a break, or closed for the day', () => {
+  it('knows when the shop is open or closed for the day', () => {
     const plan = dayPlan(TODAY, weekly, []);
-    expect(openPeriods(plan)).toEqual([
-      { start: '08:30', end: '12:30' },
-      { start: '13:00', end: '17:00' },
-    ]);
-    expect(stateAt(plan, 8 * 60)).toEqual({ state: 'before', opensAt: '08:30' });
-    expect(stateAt(plan, 10 * 60)).toEqual({ state: 'open', until: '12:30' });
-    expect(stateAt(plan, 12 * 60 + 45)).toEqual({ state: 'break', until: '13:00' });
+    expect(openPeriods(plan)).toEqual([{ start: '08:00', end: '17:00' }]);
+    expect(stateAt(plan, 7 * 60 + 59)).toEqual({ state: 'before', opensAt: '08:00' });
+    expect(stateAt(plan, 10 * 60)).toEqual({ state: 'open', until: '17:00' });
+    expect(stateAt(plan, 12 * 60 + 45)).toEqual({ state: 'open', until: '17:00' });
     expect(stateAt(plan, 17 * 60)).toEqual({ state: 'after' });
-    expect(stateAt(dayPlan('2026-10-12', weekly, []), 10 * 60)).toEqual({ state: 'closed' });
+    expect(stateAt(dayPlan('2026-10-12', weekly, []), 10 * 60)).toEqual({ state: 'open', until: '17:00' });
   });
 
   it('applies special hours, blocked windows and time off', () => {
     const special: SpecialHours[] = [{ id: 'hours-2026-10-12', kind: 'hours', date: '2026-10-12', open: '10:00', close: '14:00', breaks: [], updatedAt: '' }];
     expect(openPeriods(dayPlan('2026-10-12', weekly, [], special))).toEqual([{ start: '10:00', end: '14:00' }]);
     const vet: Closure = { id: 'v', kind: 'closure', date: TODAY, start: '14:00', end: '15:00', reason: 'Vet run', createdAt: '' };
-    expect(openPeriods(dayPlan(TODAY, weekly, [vet])).map((p) => p.start)).toEqual(['08:30', '13:00', '15:00']);
+    expect(openPeriods(dayPlan(TODAY, weekly, [vet])).map((p) => p.start)).toEqual(['08:00', '15:00']);
     const off: Closure = { id: 'o', kind: 'closure', date: '2026-10-12', reason: 'Holiday', createdAt: '' };
     expect(openPeriods(dayPlan('2026-10-12', weekly, [off], special))).toEqual([]);
   });
 
   it('describes the usual week and days in words', () => {
     expect(weeklySummary(weekly)).toEqual([
-      { label: 'Tue to Fri', value: '8:30 AM to 5:00 PM' },
-      { label: 'Sat', value: '8:00 AM to 2:00 PM' },
-      { label: 'Mon and Sun', value: 'Closed' },
+      { label: 'Mon to Sun', value: '8:00 AM to 5:00 PM' },
     ]);
     expect(dayName(TODAY, TODAY)).toBe('today');
     expect(dayName('2026-10-14', TODAY)).toBe('tomorrow');

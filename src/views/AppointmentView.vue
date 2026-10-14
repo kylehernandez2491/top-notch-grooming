@@ -14,7 +14,7 @@ import { useAccount } from '@/stores/account';
 import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 import { addDays, longDay, relativeDay, shortDay, timestamp } from '@/utils/dates';
-import { mapsUrl, shareOrCopy, telUrl } from '@/utils/device';
+import { shareOrCopy, shopDirectionsUrl, telUrl } from '@/utils/device';
 
 const route = useRoute();
 const account = useAccount();
@@ -164,7 +164,7 @@ const eventLabels: Record<string, string> = {
           <a class="btn btn-sm" :href="api.icsUrl(a.id, token)"><Icon name="calendar" :size="18" /> Add to calendar</a>
           <a v-if="calendarEvent" class="btn btn-sm" :href="googleCalendarUrl(calendarEvent)" target="_blank" rel="noopener">Google Calendar</a>
           <button type="button" class="btn btn-sm" @click="share"><Icon name="share" :size="18" /> Share</button>
-          <a v-if="catalog.settings" class="btn btn-sm" :href="mapsUrl(catalog.settings.address)" target="_blank" rel="noopener">
+          <a v-if="catalog.settings" class="btn btn-sm" :href="shopDirectionsUrl()" target="_blank" rel="noopener">
             <Icon name="map" :size="18" /> Directions
           </a>
         </div>
