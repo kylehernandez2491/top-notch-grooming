@@ -16,6 +16,8 @@ import type {
   PublicCatalog,
   ReportCard,
   Service,
+  ShopNotice,
+  SpecialHours,
   StaffBookingRequest,
   WaitlistEntry,
   WaitlistRequest,
@@ -94,6 +96,8 @@ export type AddOnInput = Omit<AddOn, 'kind' | 'updatedAt'>;
 export type ClosureInput = Pick<Closure, 'date' | 'start' | 'end' | 'reason'>;
 export type SettingsInput = Omit<BusinessSettings, 'id' | 'kind' | 'updatedAt'>;
 export type ReportCardInput = Omit<ReportCard, 'createdAt'>;
+export type SpecialHoursInput = Pick<SpecialHours, 'open' | 'close' | 'breaks' | 'note'>;
+export type NoticeInput = Pick<ShopNotice, 'message' | 'until'>;
 
 /** Appointment URLs carry ?t= when the booking was opened from an email link on another device. */
 const appt = (id: string, token?: string, action = '') => `appointments/${enc(id)}${action}${token ? `?t=${enc(token)}` : ''}`;
@@ -147,6 +151,12 @@ export const api = {
     deleteAddOn: (id: string) => del(`staff/catalog/addon/${enc(id)}`),
     createClosure: (input: ClosureInput) => post<Closure>('staff/catalog/closure', input),
     deleteClosure: (id: string) => del(`staff/catalog/closure/${enc(id)}`),
+    specialHours: () => get<SpecialHours[]>('staff/special-hours'),
+    /** One set of hours per date: saving a date again replaces it. */
+    saveSpecialHours: (date: string, input: SpecialHoursInput) => put<SpecialHours>(`staff/special-hours/${enc(date)}`, input),
+    deleteSpecialHours: (date: string) => del(`staff/special-hours/${enc(date)}`),
+    saveNotice: (input: NoticeInput) => put<ShopNotice>('staff/notice', input),
+    clearNotice: () => del('staff/notice'),
     clients: (q = '') => get<ClientSummary[]>(`staff/clients?q=${enc(q)}`),
     client: (clientKey: string) => get<ClientDetail>(`staff/clients/${enc(clientKey)}`),
     excuseNoShows: (clientKey: string) => post<{ excused: number }>(`staff/clients/${enc(clientKey)}/excuse-no-shows`),

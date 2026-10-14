@@ -1,5 +1,5 @@
 import type { Container } from '@azure/cosmos';
-import type { AddOn, Appointment, BusinessSettings, Closure, RatingSummary, Service, WaitlistEntry } from '../shared/types';
+import type { AddOn, Appointment, BusinessSettings, Closure, RatingSummary, Service, ShopNotice, SpecialHours, WaitlistEntry } from '../shared/types';
 import { Containers, clean } from './cosmos';
 import { notFound } from './http';
 import { defaultSettings } from './seed';
@@ -61,6 +61,25 @@ export async function listClosures(c: Containers, from: string, to: string): Pro
     'closure',
   );
   return rows.map(clean).sort((a, b) => (a.date + (a.start ?? '')).localeCompare(b.date + (b.start ?? '')));
+}
+
+export async function listSpecialHours(c: Containers, from: string, to: string): Promise<SpecialHours[]> {
+  const rows = await queryAll<SpecialHours>(
+    c.catalog,
+    'SELECT * FROM c WHERE c.kind = "hours" AND c.date >= @from AND c.date <= @to',
+    [
+      { name: '@from', value: from },
+      { name: '@to', value: to },
+    ],
+    'hours',
+  );
+  return rows.map(clean).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** The groomer's message for the chat assistant, while it is still showing on `today`. */
+export async function getNotice(c: Containers, today: string): Promise<ShopNotice | undefined> {
+  const { resource } = await c.catalog.item('notice', 'notice').read<ShopNotice>();
+  return resource && resource.until >= today ? clean(resource) : undefined;
 }
 
 let ratingCache: { at: number; value?: RatingSummary } | undefined;

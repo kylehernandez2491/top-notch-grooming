@@ -3,9 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { AgendaResponse, Appointment } from '@shared/types';
 import { formatMoney, formatTime12, fromMinutes, toMinutes } from '@shared/format';
+import { hoursOn } from '@shared/hours';
 import { api } from '@/api/client';
 import AgendaCard from '@/components/AgendaCard.vue';
 import Icon from '@/components/Icon.vue';
+import ShopHoursCard from '@/components/ShopHoursCard.vue';
 import { useSwipe } from '@/composables/useSwipe';
 import { useCatalog } from '@/stores/catalog';
 import { addDays, longDay, relativeDay } from '@/utils/dates';
@@ -60,8 +62,7 @@ const done = computed(() => active.value.filter((a) => a.status === 'completed')
 const gaps = computed(() => {
   const settings = catalog.settings;
   if (!settings) return [];
-  const weekday = (['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const)[new Date(`${day.value}T12:00`).getDay()];
-  const hours = settings.weeklyHours[weekday];
+  const hours = hoursOn(day.value, settings.weeklyHours, agenda.value?.specialHours);
   if (!hours) return [];
   const busy = [
     ...active.value.map((a) => [toMinutes(a.startTime), toMinutes(a.endTime) + settings.bufferMinutes]),
@@ -108,6 +109,8 @@ function replace(updated: Appointment) {
       <div class="stat"><strong class="tabular">{{ formatMoney(expected) }}</strong><span>expected</span></div>
       <div class="stat"><strong class="tabular">{{ agenda?.waitlist.length ?? 0 }}</strong><span>on waitlist</span></div>
     </section>
+
+    <ShopHoursCard v-if="agenda" :day="day" :agenda="agenda" @changed="load" />
 
     <section v-for="c in agenda?.closures ?? []" :key="c.id" class="note">
       <Icon name="clock" :size="18" />

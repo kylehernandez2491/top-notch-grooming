@@ -90,15 +90,29 @@ export const reportCardInput = z.object({
   nextVisitWeeks: z.number().int().min(1).max(26).optional(),
 });
 
+const hoursFields = {
+  open: gridTime,
+  close: gridTime,
+  breaks: z.array(z.object({ start: gridTime, end: gridTime })).max(4),
+};
+type HoursFields = { open: string; close: string; breaks: { start: string; end: string }[] };
+const opensBeforeClose = (h: HoursFields) => h.open < h.close;
+const breaksInside = (h: HoursFields) => h.breaks.every((b) => b.start < b.end && b.start >= h.open && b.end <= h.close);
+
 const dayHours = z
-  .object({
-    open: gridTime,
-    close: gridTime,
-    breaks: z.array(z.object({ start: gridTime, end: gridTime })).max(4),
-  })
-  .refine((h) => h.open < h.close, 'Closing time must be after opening time')
-  .refine((h) => h.breaks.every((b) => b.start < b.end && b.start >= h.open && b.end <= h.close), 'Breaks must fall within opening hours')
+  .object(hoursFields)
+  .refine(opensBeforeClose, 'Closing time must be after opening time')
+  .refine(breaksInside, 'Breaks must fall within opening hours')
   .nullable();
+
+/** Hours for one date (the date comes from the URL). Closing for the day is time off, not special hours. */
+export const specialHoursInput = z
+  .object({ ...hoursFields, note: optionalText(80) })
+  .refine(opensBeforeClose, 'Closing time must be after opening time')
+  .refine(breaksInside, 'Breaks must fall within opening hours');
+
+/** The groomer's message for the chat assistant. */
+export const noticeInput = z.object({ message: text(200).min(1, 'Write a message'), until: day });
 
 export const settingsInput = z.object({
   shopName: text(60).min(1),

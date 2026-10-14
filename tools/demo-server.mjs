@@ -54,6 +54,10 @@ const nowIso = () => new Date().toISOString();
 const toUtc = (d, t) => DateTime.fromISO(`${d}T${t}`, { zone: tz }).toUTC().toISO();
 
 const closures = [{ id: 'c1', kind: 'closure', date: nextWeekday(4, 15), reason: 'Grooming seminar', createdAt: nowIso() }];
+// A usual day off (Monday) opened for a few hours, and no chat message until staff add one.
+const specialDay = nextWeekday(1, 8);
+const specialHours = [{ id: `hours-${specialDay}`, kind: 'hours', date: specialDay, open: '10:00', close: '14:00', breaks: [], note: 'Special Monday opening', updatedAt: nowIso() }];
+let notice;
 
 /** Each demo client booked from their own phone; `device` is the key in that phone's cookie. */
 const clients = {
@@ -165,7 +169,7 @@ function availability(q, as) {
   const counts = new Map();
   for (const a of appointments) if (a.status !== 'cancelled' && a.id !== exclude) counts.set(a.day, (counts.get(a.day) ?? 0) + 1);
   const days = engine.rangeAvailability(from, to, {
-    settings, closures, locked: engine.buildLockMap(locks, exclude ?? undefined), counts, durationMinutes,
+    settings, closures, specialHours, locked: engine.buildLockMap(locks, exclude ?? undefined), counts, durationMinutes,
     now: DateTime.now().setZone(tz), staff: q.get('staff') === '1' && as === 'admin',
   });
   const first = days.find((d) => d.slots.length);
@@ -264,7 +268,10 @@ async function api(req, url, as, cookies) {
   const admin = as === 'admin';
   let match;
 
-  if (p === 'public/catalog') return [200, { settings, services, addOns, closures, rating: { average: 4.9, count: 38 }, today }];
+  if (p === 'public/catalog') {
+    const showing = notice && notice.until >= today ? notice : undefined;
+    return [200, { settings, services: services.filter((s) => s.active), addOns: addOns.filter((a) => a.active), closures: closures.filter((c) => c.date >= today), specialHours: specialHours.filter((s) => s.date >= today), notice: showing, rating: { average: 4.9, count: 38 }, today }];
+  }
   if (p === 'public/availability') return availability(q, as);
 
   // Pet owners: no sign-in, just this browser's device cookie (or the ?t= token from an email link).
@@ -323,9 +330,43 @@ async function api(req, url, as, cookies) {
       appointments: sorted(appointments.filter((a) => a.day >= from && a.day <= to)),
       waitlist: waitlist.filter((w) => w.day >= from && w.day <= to),
       closures: closures.filter((c) => c.date >= from && c.date <= to),
+      specialHours: specialHours.filter((s) => s.date >= from && s.date <= to),
+      notice: notice && notice.until >= today ? notice : undefined,
     }];
   }
   if (p === 'staff/settings') return [200, settings];
+  // Special hours, the chat message, time off and price edits, kept simple: no validation.
+  if (p === 'staff/special-hours') return [200, specialHours];
+  if ((match = p.match(/^staff\/special-hours\/(\d{4}-\d{2}-\d{2})$/))) {
+    const date = match[1];
+    const index = specialHours.findIndex((s) => s.date === date);
+    if (index >= 0) specialHours.splice(index, 1);
+    if (m === 'DELETE') return [204];
+    const saved = { ...(await body(req)), id: `hours-${date}`, kind: 'hours', date, updatedAt: nowIso() };
+    specialHours.push(saved);
+    specialHours.sort((a, b) => a.date.localeCompare(b.date));
+    return [200, saved];
+  }
+  if (p === 'staff/notice') {
+    notice = m === 'DELETE' ? undefined : { ...(await body(req)), id: 'notice', kind: 'notice', updatedAt: nowIso() };
+    return notice ? [200, notice] : [204];
+  }
+  if (p === 'staff/catalog/closure' && m === 'POST') {
+    const saved = { ...(await body(req)), id: randomUUID(), kind: 'closure', createdAt: nowIso() };
+    closures.push(saved);
+    return [201, saved];
+  }
+  if ((match = p.match(/^staff\/catalog\/(service|addon|closure)\/([^/]+)$/)) && ['PUT', 'DELETE'].includes(m)) {
+    const list = { service: services, addon: addOns, closure: closures }[match[1]];
+    const index = list.findIndex((x) => x.id === decodeURIComponent(match[2]));
+    if (index < 0) return error(404, 'Not found.');
+    if (m === 'DELETE') {
+      list.splice(index, 1);
+      return [204];
+    }
+    list[index] = { ...(await body(req)), id: list[index].id, kind: match[1], updatedAt: nowIso() };
+    return [200, list[index]];
+  }
   if ((match = p.match(/^staff\/catalog\/(service|addon|closure)$/))) return [200, { service: services, addon: addOns, closure: closures }[match[1]]];
   if (p === 'staff/clients') {
     const term = (q.get('q') ?? '').toLowerCase();

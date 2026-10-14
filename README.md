@@ -36,13 +36,14 @@ Basic Grooming includes bath and blow dry, nail cut, ear cleaning, sanitary clea
 - **Emails:** confirmation with calendar attachment, change, cancellation (with `METHOD:CANCEL` .ics), 24-hour reminder (opt-out), waitlist opening, and report card ready.
 - **Client details:** full name, contact number, email and address are collected before the first booking and editable under Me, along with reminder preferences and emergency contact. **Download my data** (JSON, built in the browser) and **Forget me on this device** (clears the saved details, pets and device key; bookings stay with the shop).
 - **Installable PWA:** home-screen icon, works offline for viewing saved visits, offers a one-tap update, follows dark mode, respects reduced motion.
+- **Chat assistant** ("Ask us" button on customer pages, not in the staff portal or the booking and form screens): answers whether the shop is open now or on a day, finds free times and quotes prices, from tap-to-ask buttons or typed questions in English or Taglish ("may slot ba bukas ng umaga?", "magkano full grooming sa golden retriever?"). It is rule-based, with no AI and no API key: it only reads the live hours, special hours, time off, the availability engine and the price list, so it never makes anything up. Every free time it lists links straight into booking with the service, day and time filled in. It also shows the groomer's chat message. Questions stay in the browser; nothing is stored.
 
 ### For the groomer (staff portal, `admin` role)
-- **Today:** agenda with pet alerts (nervous, reactive or senior, plus behaviour notes), owner notes, tap-to-call, one-tap **Check in → Start groom → Mark done**, no-show, free gaps for walk-ins, auto-refresh, swipe between days.
+- **Today:** agenda with pet alerts (nervous, reactive or senior, plus behaviour notes), owner notes, tap-to-call, one-tap **Check in → Start groom → Mark done**, no-show, free gaps for walk-ins, auto-refresh, swipe between days. A **Today's hours** card has one-tap **Closed today**, **Opening late**, **Closing early** (or **Open** on a usual day off) and **Back to usual hours**, plus the **chat message** customers see in the chat assistant until a chosen day. Online booking and the chat follow straight away; existing bookings stay, and the card says how many fall outside the new hours.
 - **Week board:** time grid with breaks, closures and status colours. On phones it starts at today.
 - **Appointment detail:** amount actually charged, private staff notes, report card (emails the owner), move, cancel with a reason (emails the owner), and "text ready for pick-up".
 - **Clients:** built from bookings and grouped by contact number (`0917 123 4567` and `+63 917 123 4567` are one client). Search by owner, phone or pet name; contact number, email and address as given on the latest booking; pet profiles; history; lifetime spend; no-show count and **Excuse**; **Book for client** for phone bookings from a client's history, which bypasses notice and horizon rules but never overlaps and shows up on the client's own phone.
-- **Shop settings:** services (what's included, plus duration, price, optional "up to" price and a note for each dog size), extras that can be tied to one service and certain sizes (the face design to start), weekly hours with breaks, booking rules (start-time step, clean-up buffer, minimum notice, horizon, cancellation window, daily cap, per-client cap, no-show pause), shop details, policy text, and time off (full or partial days).
+- **Shop settings:** services (what's included, plus duration, price, optional "up to" price and a note for each dog size), a **Prices** table with every service's price and "up to" price by dog size plus each extra's price on one screen, extras that can be tied to one service and certain sizes (the face design to start), weekly hours with breaks, **special hours** for one date (holiday hours, or opening on a usual day off) that replace the weekly hours for booking and the chat, booking rules (start-time step, clean-up buffer, minimum notice, horizon, cancellation window, daily cap, per-client cap, no-show pause), shop details, policy text, and time off (full or partial days).
 - **Reports:** revenue, average ticket, no-show rate, late cancellations, new clients, rating, visits by weekday and hour, top services, and **CSV export** (formula-injection safe).
 
 ---
@@ -83,14 +84,14 @@ The day is cut into 15-minute blocks. Every appointment owns one **lock document
 - Locks always use the 15-minute grid, even if you change start times to every 30 or 60 minutes, so they never misalign.
 - Lock, summary and waitlist documents carry a Cosmos **TTL** and expire about a week after their day. Appointments are kept.
 
-`api/test/booking.test.ts` races two overlapping bookings against an in-memory container with the same batch semantics. `api/test/availability.test.ts` covers hours, breaks, closures, buffers, notice, horizon, daily caps and a DST change.
+`api/test/booking.test.ts` races two overlapping bookings against an in-memory container with the same batch semantics. `api/test/availability.test.ts` covers hours, special hours, breaks, closures, buffers, notice, horizon, daily caps and a DST change. `api/test/chat.test.ts` covers how the chat assistant reads English and Taglish questions and works out the shop's hours on a day.
 
 ### Data model (database `grooming`)
 
 | Container | Partition key | Holds |
 |---|---|---|
 | `bookings` | `/day` | appointments (each with a copy of the owner's details and pet profile), slot locks, a daily `summary`, waitlist entries |
-| `catalog` | `/kind` | `settings`, services, add-ons, closures |
+| `catalog` | `/kind` | `settings`, services, add-ons, closures, special hours (`hours-YYYY-MM-DD`, one per date), the chat message (`notice`) |
 
 There are no owner or pet records on the server. The staff Clients screen groups appointments by `clientKey` (the contact number as digits) and shows the newest details.
 
@@ -202,7 +203,7 @@ Everything else (hours, rules, prices, policies) is edited in the staff portal. 
 
 | Method & route | Who | What |
 |---|---|---|
-| `GET /api/public/catalog` | anyone | shop settings, services, extras, upcoming closures, rating |
+| `GET /api/public/catalog` | anyone | shop settings, services, extras, closures and special hours for the coming year, the chat message, rating |
 | `GET /api/public/availability?from&to&serviceId&size&addOns[&exclude][&t][&staff=1]` | anyone* | per-day status, open starts, capacity, next opening |
 | `GET /api/appointments` | device | this device's bookings (none without a `tn_device` cookie) |
 | `POST /api/appointments` | anyone | book with the owner's details and pet in the body (incl. repeat series); sets or renews `tn_device` |
@@ -215,6 +216,8 @@ Everything else (hours, rules, prices, policies) is edited in the staff portal. 
 | `GET /api/staff/appointments/{id}`, `POST …/status` · `…/reschedule`, `PUT …/staff-notes` · `…/report-card` | staff | run the day |
 | `GET/PUT /api/staff/settings` | staff | hours and rules |
 | `GET/POST /api/staff/catalog/{service\|addon\|closure}`, `PUT/DELETE …/{id}` | staff | menu and time off |
+| `GET /api/staff/special-hours`, `PUT/DELETE /api/staff/special-hours/{date}` | staff | hours for one date (saving a date again replaces it) |
+| `PUT/DELETE /api/staff/notice` | staff | the chat assistant's message and the last day it shows |
 | `GET /api/staff/clients?q`, `GET /api/staff/clients/{clientKey}`, `POST …/excuse-no-shows` | staff | client lookup, excuse no-shows |
 | `GET /api/staff/stats?from&to`, `GET /api/staff/export?from&to` | staff | reports, CSV |
 | `POST /api/jobs/reminders` | GitHub Actions (`x-jobs-key`) | send due reminders |

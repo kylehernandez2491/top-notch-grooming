@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DateTime } from 'luxon';
 import { buildLockMap, dayAvailability, lockBlocks, lockId, rangeAvailability } from '../src/lib/availability';
 import { defaultSettings } from '../src/lib/seed';
-import type { BusinessSettings, Closure } from '../src/shared/types';
+import type { BusinessSettings, Closure, SpecialHours } from '../src/shared/types';
 
 const zone = 'America/Chicago';
 // Friday 2026-10-09 07:00 in Chicago. Tue 2026-10-13 is a normal working day.
@@ -100,6 +100,19 @@ describe('dayAvailability', () => {
     expect(times(dayAvailability(TUE, ctx({ locked: buildLockMap(locks) })))).not.toContain('09:00');
     expect(times(dayAvailability(TUE, ctx({ locked: buildLockMap(locks, 'mine') })))).toContain('09:00');
     expect(rangeAvailability('2026-10-12', '2026-10-18', ctx())).toHaveLength(7);
+  });
+
+  it("uses a date's special hours instead of the weekly hours, and time off still wins", () => {
+    const specialHours: SpecialHours[] = [
+      // Monday is usually closed.
+      { id: 'hours-2026-10-12', kind: 'hours', date: '2026-10-12', open: '10:00', close: '12:00', breaks: [], updatedAt: '' },
+      { id: 'hours-2026-10-13', kind: 'hours', date: TUE, open: '13:00', close: '15:00', breaks: [], note: 'Late start', updatedAt: '' },
+    ];
+    expect(times(dayAvailability('2026-10-12', ctx({ specialHours })))).toEqual(['10:00', '10:30', '11:00']);
+    expect(times(dayAvailability(TUE, ctx({ specialHours })))).toEqual(['13:00', '13:30', '14:00']);
+    expect(times(dayAvailability('2026-10-14', ctx({ specialHours })))[0]).toBe('08:30');
+    const closures: Closure[] = [{ id: 'x', kind: 'closure', date: TUE, reason: 'Typhoon', createdAt: '' }];
+    expect(dayAvailability(TUE, ctx({ specialHours, closures }))).toMatchObject({ status: 'closed', reason: 'Typhoon' });
   });
 
   it('handles DST transitions (US fall back on 2026-11-01)', () => {

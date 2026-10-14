@@ -12,10 +12,13 @@ import type {
   Closure,
   OwnerDetails,
   Service,
+  ShopNotice,
+  SpecialHours,
   WaitlistEntry,
   Weekday,
 } from '../shared/types';
 import { ACTIVE_STATUSES, WEEKDAYS } from '../shared/types';
+import { specialHoursId } from '../shared/hours';
 import { cancelAppointment, rescheduleAppointment } from '../lib/actions';
 import { requireAdmin } from '../lib/auth';
 import { book, countNoShows, saveAppointment } from '../lib/booking';
@@ -25,11 +28,13 @@ import { badRequest, baseUrl, conflict, created, notFound, query, raw, readBody,
 import {
   ClientRow,
   findAppointment,
+  getNotice,
   getSettings,
   invalidateCatalog,
   listAppointmentsInRange,
   listClientRows,
   listClosures,
+  listSpecialHours,
   loadCatalog,
   queryAll,
 } from '../lib/repo';
@@ -37,10 +42,12 @@ import { addDays, daysBetween, isValidDay, todayIn, weekdayOf } from '../lib/tim
 import {
   addOnInput,
   closureInput,
+  noticeInput,
   reportCardInput,
   rescheduleInput,
   serviceInput,
   settingsInput,
+  specialHoursInput,
   staffBookingInput,
   staffNotesInput,
   statusInput,
@@ -60,16 +67,19 @@ route('adminAgenda', ['GET'], 'staff/agenda', async (req): Promise<AgendaRespons
   requireAdmin(req);
   const c = await getContainers();
   const settings = await getSettings(c);
-  const { from, to } = range(req, todayIn(settings.timeZone), 6, 62);
-  const [appointments, waitlist, closures] = await Promise.all([
+  const today = todayIn(settings.timeZone);
+  const { from, to } = range(req, today, 6, 62);
+  const [appointments, waitlist, closures, specialHours, notice] = await Promise.all([
     listAppointmentsInRange(c, from, to),
     queryAll<WaitlistEntry>(c.bookings, 'SELECT * FROM c WHERE c.type = "waitlist" AND c.day >= @f AND c.day <= @t', [
       { name: '@f', value: from },
       { name: '@t', value: to },
     ]),
     listClosures(c, from, to),
+    listSpecialHours(c, from, to),
+    getNotice(c, today),
   ]);
-  return { from, to, appointments, waitlist: waitlist.map(clean), closures };
+  return { from, to, appointments, waitlist: waitlist.map(clean), closures, specialHours, notice };
 });
 
 /** Phone and walk-in bookings for a client from their history. Bypasses notice and horizon, never overlaps. */
@@ -256,6 +266,59 @@ route('adminCatalogDelete', ['DELETE'], 'staff/catalog/{kind}/{id}', async (req)
   const kind = kindOf(req.params.kind);
   const c = await getContainers();
   await c.catalog.item(req.params.id, kind).delete();
+  invalidateCatalog();
+  return undefined;
+});
+
+// ---------- special hours & the chat assistant's message ----------
+
+route('adminSpecialHoursList', ['GET'], 'staff/special-hours', async (req) => {
+  requireAdmin(req);
+  const c = await getContainers();
+  const today = todayIn((await getSettings(c)).timeZone);
+  return listSpecialHours(c, addDays(today, -30), addDays(today, 400));
+});
+
+/** One set of hours per date, so saving a date again replaces it. */
+route('adminSpecialHoursPut', ['PUT'], 'staff/special-hours/{date}', async (req) => {
+  requireAdmin(req);
+  const date = req.params.date;
+  if (!isValidDay(date)) throw badRequest('Use a valid date (YYYY-MM-DD).');
+  const input = await readBody(req, specialHoursInput);
+  const c = await getContainers();
+  const doc: SpecialHours = { ...input, id: specialHoursId(date), kind: 'hours', date, updatedAt: new Date().toISOString() };
+  await c.catalog.items.upsert(doc);
+  invalidateCatalog();
+  return doc;
+});
+
+route('adminSpecialHoursDelete', ['DELETE'], 'staff/special-hours/{date}', async (req) => {
+  requireAdmin(req);
+  const date = req.params.date;
+  if (!isValidDay(date)) throw badRequest('Use a valid date (YYYY-MM-DD).');
+  const c = await getContainers();
+  const { resource } = await c.catalog.item(specialHoursId(date), 'hours').read();
+  if (resource) await c.catalog.item(specialHoursId(date), 'hours').delete();
+  invalidateCatalog();
+  return undefined;
+});
+
+route('adminNoticePut', ['PUT'], 'staff/notice', async (req) => {
+  requireAdmin(req);
+  const input = await readBody(req, noticeInput);
+  const c = await getContainers();
+  if (input.until < todayIn((await getSettings(c)).timeZone)) throw badRequest('Choose today or a later day.');
+  const doc: ShopNotice = { ...input, id: 'notice', kind: 'notice', updatedAt: new Date().toISOString() };
+  await c.catalog.items.upsert(doc);
+  invalidateCatalog();
+  return doc;
+});
+
+route('adminNoticeDelete', ['DELETE'], 'staff/notice', async (req) => {
+  requireAdmin(req);
+  const c = await getContainers();
+  const { resource } = await c.catalog.item('notice', 'notice').read();
+  if (resource) await c.catalog.item('notice', 'notice').delete();
   invalidateCatalog();
   return undefined;
 });

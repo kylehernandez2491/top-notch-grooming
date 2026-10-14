@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import type { AddOn, BusinessSettings, Closure, PetSize, Service, Species, Weekday } from '@shared/types';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import type { AddOn, BusinessSettings, Closure, PetSize, Service, SpecialHours, Species, TimeRange, Weekday } from '@shared/types';
 import { PET_SIZES, WEEKDAYS } from '@shared/types';
-import { formatMoney, formatTime12, fromMinutes, priceRange, SIZE_LABELS } from '@shared/format';
+import { formatMoney, formatTime12, fromMinutes, priceRange, SIZE_LABELS, sizesFor } from '@shared/format';
+import { weekdayOfDay } from '@shared/hours';
 import { api, ApiError, type AddOnInput, type ServiceInput, type SettingsInput } from '@/api/client';
 import Icon from '@/components/Icon.vue';
 import SheetDialog from '@/components/SheetDialog.vue';
@@ -10,7 +11,7 @@ import { useCatalog } from '@/stores/catalog';
 import { useUi } from '@/stores/ui';
 import { shortDay } from '@/utils/dates';
 
-type Tab = 'services' | 'extras' | 'hours' | 'closures';
+type Tab = 'services' | 'prices' | 'extras' | 'hours' | 'special' | 'closures';
 const tab = ref<Tab>('services');
 const ui = useUi();
 const catalog = useCatalog();
@@ -18,6 +19,7 @@ const catalog = useCatalog();
 const services = ref<Service[]>([]);
 const addOns = ref<AddOn[]>([]);
 const closures = ref<Closure[]>([]);
+const specialHours = ref<SpecialHours[]>([]);
 const settings = ref<SettingsInput | null>(null);
 const originalZone = ref('');
 const error = ref('');
@@ -25,10 +27,17 @@ const saving = ref(false);
 
 onMounted(async () => {
   try {
-    const [s, a, c, st] = await Promise.all([api.admin.services(), api.admin.addOns(), api.admin.closures(), api.admin.settings()]);
+    const [s, a, c, st, sh] = await Promise.all([
+      api.admin.services(),
+      api.admin.addOns(),
+      api.admin.closures(),
+      api.admin.settings(),
+      api.admin.specialHours(),
+    ]);
     services.value = s;
     addOns.value = a;
     closures.value = c;
+    specialHours.value = sh;
     const { id: _id, kind: _kind, updatedAt: _u, ...rest } = st as BusinessSettings;
     settings.value = JSON.parse(JSON.stringify(rest));
     originalZone.value = st.timeZone;
@@ -285,6 +294,168 @@ async function removeClosure(c: Closure) {
 }
 
 const upcomingClosures = computed(() => closures.value.filter((c) => c.date >= catalog.today));
+
+// ---------- prices: every listed price on one screen ----------
+type PriceCell = { price: number | ''; max: number | '' };
+const priceDraft = ref<Record<string, Record<PetSize, PriceCell>>>({});
+const extraDraft = ref<Record<string, number | ''>>({});
+
+/** Fills the table from the saved menu. Runs again whenever a service or extra is saved. */
+function resetPrices() {
+  priceDraft.value = Object.fromEntries(
+    services.value.map((s) => [
+      s.id,
+      Object.fromEntries(PET_SIZES.map((z) => [z, { price: s.priceBySize[z], max: (s.priceMaxBySize?.[z] ?? 0) > s.priceBySize[z] ? s.priceMaxBySize![z]! : '' }])) as Record<PetSize, PriceCell>,
+    ]),
+  );
+  extraDraft.value = Object.fromEntries(addOns.value.map((a) => [a.id, a.price]));
+}
+watch([services, addOns], resetPrices);
+
+const sizeLabel = (s: Service, z: PetSize) => (s.species.includes('dog') ? SIZE_LABELS[z] : 'All cats');
+
+/** The service as it would be saved with the table's prices. Cat-only services have one price for every size. */
+function withPrices(s: Service): ServiceInput {
+  const draft = priceDraft.value[s.id];
+  const catOnly = !s.species.includes('dog');
+  const priceBySize = {} as Record<PetSize, number>;
+  const priceMaxBySize: Partial<Record<PetSize, number>> = {};
+  for (const z of PET_SIZES) {
+    const cell = draft[catOnly ? 'small' : z];
+    priceBySize[z] = Number(cell.price);
+    if (cell.max !== '' && Number(cell.max) > priceBySize[z]) priceMaxBySize[z] = Number(cell.max);
+  }
+  const { kind: _k, updatedAt: _u, ...rest } = s;
+  return { ...rest, priceBySize, priceMaxBySize };
+}
+
+function savedMax(s: Service): Partial<Record<PetSize, number>> {
+  return Object.fromEntries(PET_SIZES.filter((z) => (s.priceMaxBySize?.[z] ?? 0) > s.priceBySize[z]).map((z) => [z, s.priceMaxBySize![z]!]));
+}
+
+const priceErrors = computed(() => {
+  const errors: string[] = [];
+  for (const s of services.value) {
+    const draft = priceDraft.value[s.id];
+    if (!draft) continue;
+    for (const z of sizesFor(s)) {
+      const { price, max } = draft[z];
+      if (price === '' || price < 0) errors.push(`${s.name}, ${sizeLabel(s, z)}: enter a price.`);
+      else if (max !== '' && max < price) errors.push(`${s.name}, ${sizeLabel(s, z)}: "Up to" must be at least the price.`);
+    }
+  }
+  for (const a of addOns.value) {
+    const price = extraDraft.value[a.id];
+    if (price === '' || price === undefined || price < 0) errors.push(`${a.name}: enter a price.`);
+  }
+  return errors;
+});
+
+const changedServices = computed(() =>
+  services.value.filter((s) => {
+    if (!priceDraft.value[s.id]) return false;
+    const next = withPrices(s);
+    return JSON.stringify(next.priceBySize) !== JSON.stringify(Object.fromEntries(PET_SIZES.map((z) => [z, s.priceBySize[z]]))) ||
+      JSON.stringify(next.priceMaxBySize) !== JSON.stringify(savedMax(s));
+  }),
+);
+const changedAddOns = computed(() => addOns.value.filter((a) => extraDraft.value[a.id] !== '' && Number(extraDraft.value[a.id]) !== a.price));
+const priceChanges = computed(() => changedServices.value.length + changedAddOns.value.length);
+
+async function savePrices() {
+  if (priceErrors.value.length || !priceChanges.value) return;
+  // Work out every update first: each save refreshes the table.
+  const serviceUpdates = changedServices.value.map((s) => withPrices(s));
+  const addOnUpdates = changedAddOns.value.map(({ kind: _k, updatedAt: _u, ...rest }) => ({ ...rest, price: Number(extraDraft.value[rest.id]) }));
+  saving.value = true;
+  try {
+    for (const body of serviceUpdates) {
+      const saved = await api.admin.updateService(body.id, body);
+      services.value = services.value.map((s) => (s.id === saved.id ? saved : s));
+    }
+    for (const body of addOnUpdates) {
+      const saved = await api.admin.updateAddOn(body.id, body);
+      addOns.value = addOns.value.map((a) => (a.id === saved.id ? saved : a));
+    }
+    catalog.load(true);
+    ui.toast('Prices saved. The menu, booking and the chat show them now.', 'success');
+  } catch (err) {
+    showError(err);
+  } finally {
+    saving.value = false;
+  }
+}
+
+// ---------- special hours for one date ----------
+const special = reactive({ date: '', open: '09:00', close: '17:00', breaks: [] as TimeRange[], note: '' });
+
+// Picking a date starts from that date's saved special hours, or its usual weekday hours.
+watch(
+  () => special.date,
+  (date) => {
+    if (!date || !settings.value) return;
+    const start = specialHours.value.find((s) => s.date === date) ?? settings.value.weeklyHours[weekdayOfDay(date)];
+    special.open = start?.open ?? '09:00';
+    special.close = start?.close ?? '17:00';
+    special.breaks = JSON.parse(JSON.stringify(start?.breaks ?? []));
+    special.note = specialHours.value.find((s) => s.date === date)?.note ?? '';
+  },
+);
+
+const specialHint = computed(() => {
+  if (!special.date || !settings.value) return '';
+  const weekday = weekdayOfDay(special.date);
+  const usual = settings.value.weeklyHours[weekday];
+  const parts = [usual ? `Usually ${formatTime12(usual.open)} to ${formatTime12(usual.close)} on ${dayNames[weekday]}s.` : `Usually closed on ${dayNames[weekday]}s.`];
+  if (specialHours.value.some((s) => s.date === special.date)) parts.push('Saving replaces the special hours already set for this date.');
+  if (closures.value.some((c) => c.date === special.date && !c.start)) parts.push('Time off on this date still keeps the shop closed.');
+  return parts.join(' ');
+});
+
+/** Same rules as the API, shown before saving. */
+const specialError = computed(() => {
+  if (special.open >= special.close) return 'Closing time must be after opening time.';
+  if (special.breaks.some((b) => b.start >= b.end || b.start < special.open || b.end > special.close)) {
+    return 'Each break must fall within the opening hours. Move or remove it.';
+  }
+  return '';
+});
+
+async function saveSpecial() {
+  if (!special.date || specialError.value) return;
+  try {
+    const saved = await api.admin.saveSpecialHours(special.date, {
+      open: special.open,
+      close: special.close,
+      breaks: special.breaks,
+      note: special.note.trim() || undefined,
+    });
+    specialHours.value = [...specialHours.value.filter((s) => s.date !== saved.date), saved].sort((a, b) => a.date.localeCompare(b.date));
+    special.date = '';
+    catalog.load(true);
+    ui.toast(`Hours saved for ${shortDay(saved.date)}. Booking and the chat use them for that date.`, 'success');
+  } catch (err) {
+    showError(err);
+  }
+}
+
+function editSpecial(s: SpecialHours) {
+  special.date = s.date;
+  nextTick(() => document.getElementById('sp-date')?.focus());
+}
+
+async function removeSpecial(s: SpecialHours) {
+  try {
+    await api.admin.deleteSpecialHours(s.date);
+    specialHours.value = specialHours.value.filter((x) => x.date !== s.date);
+    catalog.load(true);
+    ui.toast(`${shortDay(s.date)} is back to the usual hours.`, 'success');
+  } catch (err) {
+    showError(err);
+  }
+}
+
+const upcomingSpecial = computed(() => specialHours.value.filter((s) => s.date >= catalog.today));
 </script>
 
 <template>
@@ -294,8 +465,10 @@ const upcomingClosures = computed(() => closures.value.filter((c) => c.date >= c
       <button
         v-for="t in [
           { key: 'services', label: 'Services' },
+          { key: 'prices', label: 'Prices' },
           { key: 'extras', label: 'Extras' },
           { key: 'hours', label: 'Hours & rules' },
+          { key: 'special', label: 'Special hours' },
           { key: 'closures', label: 'Time off' },
         ] as { key: Tab; label: string }[]"
         :key="t.key"
@@ -326,6 +499,64 @@ const upcomingClosures = computed(() => closures.value.filter((c) => c.date >= c
         </li>
       </ul>
     </section>
+
+    <!-- Prices -->
+    <form v-else-if="tab === 'prices'" class="stack-lg" @submit.prevent="savePrices">
+      <p class="muted small">Every price on the menu in pesos, on one screen. Leave "Up to" empty for a fixed price. Notes, times and what's included are edited under Services.</p>
+      <template v-for="s in services" :key="s.id">
+        <section v-if="priceDraft[s.id]" class="panel stack">
+          <h2 class="section-title">{{ s.name }} <span v-if="!s.active" class="badge">Hidden</span></h2>
+          <div class="price-grid">
+            <span aria-hidden="true" />
+            <span class="price-head" aria-hidden="true">Price (₱)</span>
+            <span class="price-head" aria-hidden="true">Up to (₱)</span>
+            <template v-for="z in sizesFor(s)" :key="z">
+              <span class="price-size">{{ sizeLabel(s, z) }}</span>
+              <input
+                v-model.number="priceDraft[s.id][z].price"
+                class="input"
+                type="number"
+                min="0"
+                step="10"
+                inputmode="numeric"
+                :aria-label="`${s.name}, ${sizeLabel(s, z)}: price in pesos`"
+              />
+              <input
+                v-model.number="priceDraft[s.id][z].max"
+                class="input"
+                type="number"
+                min="0"
+                step="10"
+                inputmode="numeric"
+                placeholder="–"
+                :aria-label="`${s.name}, ${sizeLabel(s, z)}: up to, in pesos`"
+              />
+            </template>
+          </div>
+        </section>
+      </template>
+      <section v-if="addOns.length" class="panel stack">
+        <h2 class="section-title">Extras</h2>
+        <div class="price-grid extras-grid">
+          <template v-for="a in addOns" :key="a.id">
+            <label :for="`xp-${a.id}`" class="price-size">
+              {{ a.name }} <span v-if="!a.active" class="badge">Hidden</span>
+              <span class="muted small extra-scope">{{ addOnScope(a) }}</span>
+            </label>
+            <input :id="`xp-${a.id}`" v-model.number="extraDraft[a.id]" class="input" type="number" min="0" step="10" inputmode="numeric" />
+          </template>
+        </div>
+      </section>
+      <div v-if="priceErrors.length" class="alert" role="alert">
+        <span class="stack">
+          <span v-for="e in priceErrors" :key="e">{{ e }}</span>
+        </span>
+      </div>
+      <div class="action-bar">
+        <span class="small">{{ priceChanges ? `${priceChanges} ${priceChanges === 1 ? 'item' : 'items'} changed` : 'No changes yet' }}</span>
+        <button type="submit" class="btn btn-primary" :disabled="saving || !priceChanges || priceErrors.length > 0">{{ saving ? 'Saving…' : 'Save prices' }}</button>
+      </div>
+    </form>
 
     <!-- Extras -->
     <section v-else-if="tab === 'extras'" class="stack">
@@ -453,6 +684,68 @@ const upcomingClosures = computed(() => closures.value.filter((c) => c.date >= c
         <button type="submit" class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
       </div>
     </form>
+
+    <!-- Special hours -->
+    <section v-else-if="tab === 'special' && settings" class="stack-lg">
+      <form class="panel stack" @submit.prevent="saveSpecial">
+        <h2 class="section-title">Hours for one date</h2>
+        <p class="small muted">
+          Replaces the weekly hours on that date for online booking and the chat, e.g. holiday hours or opening on a usual day off. To close
+          for the whole day, use Time off. For today, the Today screen has quick buttons.
+        </p>
+        <div class="field"><label for="sp-date">Date</label><input id="sp-date" v-model="special.date" class="input" type="date" :min="catalog.today" required /></div>
+        <template v-if="special.date">
+          <p class="small">{{ specialHint }}</p>
+          <div class="row times fit">
+            <select v-model="special.open" class="select time" aria-label="Opens">
+              <option v-for="t in timeOptions" :key="t" :value="t">{{ formatTime12(t) }}</option>
+            </select>
+            <span class="muted">to</span>
+            <select v-model="special.close" class="select time" aria-label="Closes">
+              <option v-for="t in timeOptions" :key="t" :value="t">{{ formatTime12(t) }}</option>
+            </select>
+          </div>
+          <div v-for="(b, i) in special.breaks" :key="i" class="row times break fit">
+            <span class="small muted">Break</span>
+            <select v-model="b.start" class="select time" aria-label="Break starts">
+              <option v-for="t in timeOptions" :key="t" :value="t">{{ formatTime12(t) }}</option>
+            </select>
+            <span class="muted">to</span>
+            <select v-model="b.end" class="select time" aria-label="Break ends">
+              <option v-for="t in timeOptions" :key="t" :value="t">{{ formatTime12(t) }}</option>
+            </select>
+            <button type="button" class="icon-btn" aria-label="Remove break" @click="special.breaks.splice(i, 1)"><Icon name="x" :size="18" /></button>
+          </div>
+          <button type="button" class="btn btn-sm btn-ghost add-break" @click="special.breaks.push({ start: '12:00', end: '12:30' })">
+            <Icon name="plus" :size="16" /> Add break
+          </button>
+          <div class="field">
+            <label for="sp-note">Note for customers (optional)</label>
+            <input id="sp-note" v-model="special.note" class="input" maxlength="80" placeholder="e.g. Christmas Eve hours" />
+          </div>
+          <p v-if="specialError" class="field-error">{{ specialError }}</p>
+          <div class="row">
+            <button type="submit" class="btn btn-dark" :disabled="!!specialError">Save hours for {{ shortDay(special.date) }}</button>
+          </div>
+        </template>
+      </form>
+
+      <ul v-if="upcomingSpecial.length" class="divider-list panel list">
+        <li v-for="s in upcomingSpecial" :key="s.id" class="item">
+          <span class="stack item-text">
+            <strong>{{ shortDay(s.date) }}</strong>
+            <span class="muted small">
+              {{ formatTime12(s.open) }} to {{ formatTime12(s.close) }}<template v-for="b in s.breaks" :key="b.start">, break {{ formatTime12(b.start) }} to {{ formatTime12(b.end) }}</template><template v-if="s.note">, {{ s.note }}</template>
+            </span>
+          </span>
+          <span class="row item-actions">
+            <button type="button" class="icon-btn" :aria-label="`Edit hours on ${shortDay(s.date)}`" @click="editSpecial(s)"><Icon name="edit" :size="18" /></button>
+            <button type="button" class="icon-btn" :aria-label="`Remove special hours on ${shortDay(s.date)}`" @click="removeSpecial(s)"><Icon name="trash" :size="18" /></button>
+          </span>
+        </li>
+      </ul>
+      <p v-else class="panel muted">No special hours coming up.</p>
+    </section>
 
     <!-- Closures -->
     <section v-else-if="tab === 'closures'" class="stack-lg">
@@ -693,5 +986,43 @@ const upcomingClosures = computed(() => closures.value.filter((c) => c.date >= c
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.price-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.extras-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+.price-head {
+  font-size: var(--step--1);
+  font-weight: 620;
+  color: var(--ink-soft);
+}
+
+.price-size {
+  display: grid;
+  justify-items: start;
+  font-size: var(--step--1);
+  font-weight: 640;
+}
+
+.extra-scope {
+  font-weight: 450;
+}
+
+.item-actions {
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+/* Lets a row of time pickers shrink to a 390 px phone instead of widening the page. */
+.fit {
+  min-width: 0;
 }
 </style>

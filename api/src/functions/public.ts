@@ -6,7 +6,18 @@ import { getPrincipal, isAdmin } from '../lib/auth';
 import { buildLockMap, rangeAvailability } from '../lib/availability';
 import { getContainers } from '../lib/cosmos';
 import { badRequest, forbidden, query, route } from '../lib/http';
-import { findAppointment, getAddOns, getService, listClosures, loadCatalog, loadCounts, loadLocks, ratingSummary } from '../lib/repo';
+import {
+  findAppointment,
+  getAddOns,
+  getNotice,
+  getService,
+  listClosures,
+  listSpecialHours,
+  loadCatalog,
+  loadCounts,
+  loadLocks,
+  ratingSummary,
+} from '../lib/repo';
 import { addDays, daysBetween, isValidDay, nowIn, todayIn } from '../lib/time';
 
 const MAX_RANGE_DAYS = 93;
@@ -20,8 +31,12 @@ route(
     const c = await getContainers();
     const { settings, services, addOns } = await loadCatalog(c);
     const today = todayIn(settings.timeZone);
-    const [closures, rating] = await Promise.all([
-      listClosures(c, today, addDays(today, settings.bookingHorizonDays)),
+    // A year ahead, past the booking horizon, so the chat can answer "are you open on Dec 24?".
+    const ahead = addDays(today, 365);
+    const [closures, specialHours, notice, rating] = await Promise.all([
+      listClosures(c, today, ahead),
+      listSpecialHours(c, today, ahead),
+      getNotice(c, today),
       ratingSummary(c),
     ]);
     return {
@@ -29,6 +44,8 @@ route(
       services: services.filter((s) => s.active),
       addOns: addOns.filter((a) => a.active),
       closures,
+      specialHours,
+      notice,
       rating,
       today,
     };
@@ -72,12 +89,18 @@ route('publicAvailability', ['GET'], 'public/availability', async (req): Promise
     ignore = { id: appointment.id, day: appointment.day };
   }
 
-  const [locks, counts, closures] = await Promise.all([loadLocks(c, from, to), loadCounts(c, from, to), listClosures(c, from, to)]);
+  const [locks, counts, closures, specialHours] = await Promise.all([
+    loadLocks(c, from, to),
+    loadCounts(c, from, to),
+    listClosures(c, from, to),
+    listSpecialHours(c, from, to),
+  ]);
   if (ignore && counts.has(ignore.day)) counts.set(ignore.day, Math.max(0, counts.get(ignore.day)! - 1));
 
   const days = rangeAvailability(from, to, {
     settings,
     closures,
+    specialHours,
     locked: buildLockMap(locks, ignore?.id),
     counts,
     durationMinutes,

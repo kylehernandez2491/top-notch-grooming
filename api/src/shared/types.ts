@@ -115,7 +115,33 @@ export interface Closure {
   createdAt: string;
 }
 
-export type CatalogDoc = BusinessSettings | Service | AddOn | Closure;
+/**
+ * Hours for one date that replace the weekly hours: holiday hours, opening on a usual day off, or a
+ * late start today. One per date (id `hours-YYYY-MM-DD`). Closures still apply on top.
+ */
+export interface SpecialHours {
+  id: string;
+  kind: 'hours';
+  date: string;
+  open: string;
+  close: string;
+  breaks: TimeRange[];
+  /** Shown to customers by the chat assistant, e.g. "Christmas Eve hours". */
+  note?: string;
+  updatedAt: string;
+}
+
+/** A short message from the groomer that the chat assistant shows, e.g. "Closed for Signal No. 2". */
+export interface ShopNotice {
+  id: 'notice';
+  kind: 'notice';
+  message: string;
+  /** Last day (YYYY-MM-DD in the shop's zone) it is shown. */
+  until: string;
+  updatedAt: string;
+}
+
+export type CatalogDoc = BusinessSettings | Service | AddOn | Closure | SpecialHours | ShopNotice;
 
 /** What the groomer needs to know about a pet. Sent with each booking and copied onto the appointment. */
 export interface PetDetails {
@@ -305,6 +331,10 @@ export interface PublicCatalog {
   services: Service[];
   addOns: AddOn[];
   closures: Closure[];
+  /** Dates in the coming year with their own hours. */
+  specialHours?: SpecialHours[];
+  /** The groomer's current message for the chat assistant, while it is still showing. */
+  notice?: ShopNotice;
   rating?: RatingSummary;
   today: string;
 }
@@ -344,6 +374,8 @@ export interface AgendaResponse {
   appointments: Appointment[];
   waitlist: WaitlistEntry[];
   closures: Closure[];
+  specialHours?: SpecialHours[];
+  notice?: ShopNotice;
 }
 
 /** A client as the staff portal sees them: built from their bookings, newest details first. */

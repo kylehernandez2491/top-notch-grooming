@@ -3,18 +3,21 @@
  *
  * Model: a day is cut into LOCK_MINUTES blocks. Every booked appointment owns one lock document per
  * block it occupies (service time + clean-up buffer). A start time is offered when the service fits
- * inside opening hours, avoids breaks and partial closures, respects minimum notice, and none of the
- * blocks it would need are already locked.
+ * inside opening hours (that date's special hours, else the weekly hours), avoids breaks and partial
+ * closures, respects minimum notice, and none of the blocks it would need are already locked.
  */
 import type { DateTime } from 'luxon';
-import type { BusinessSettings, Closure, DayAvailability, SlotOption } from '../shared/types';
+import type { BusinessSettings, Closure, DayAvailability, SlotOption, SpecialHours } from '../shared/types';
 import { LOCK_MINUTES } from '../shared/types';
 import { fromMinutes, roundUp, toMinutes } from '../shared/format';
-import { addDays, eachDay, weekdayOf, zoned } from './time';
+import { hoursOn } from '../shared/hours';
+import { addDays, eachDay, zoned } from './time';
 
 export interface AvailabilityContext {
   settings: BusinessSettings;
   closures: Closure[];
+  /** Dates whose hours replace the weekly hours. */
+  specialHours?: SpecialHours[];
   /** day -> minute-of-day of every locked block. */
   locked: Map<string, Set<number>>;
   /** day -> active appointments already on that day. */
@@ -55,7 +58,7 @@ export function dayAvailability(day: string, ctx: AvailabilityContext): DayAvail
     return { day, status: 'beyond', slots: [], reason: `Bookings open ${settings.bookingHorizonDays} days ahead` };
   }
 
-  const hours = settings.weeklyHours[weekdayOf(day)];
+  const hours = hoursOn(day, settings.weeklyHours, ctx.specialHours);
   if (!hours) return { day, status: 'closed', slots: [], reason: 'Closed' };
 
   const dayClosures = ctx.closures.filter((c) => c.date === day);

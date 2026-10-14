@@ -22,7 +22,7 @@ npm install && npm --prefix api install   # dependencies
 npm run typecheck                         # front-end types (vue-tsc)
 npm run build                             # front-end build
 npm --prefix api run typecheck            # API types
-npm --prefix api test                     # vitest: 29 tests, all must pass
+npm --prefix api test                     # vitest: 39 tests, all must pass
 npm --prefix api run build && npm run demo  # after npm run build: http://localhost:4280/?as=owner (or ?as=guest, ?as=admin)
 ```
 Run all four checks before saying a change is done; CI runs the same ones and blocks the deploy if one fails.
@@ -33,6 +33,10 @@ Run all four checks before saying a change is done; CI runs the same ones and bl
 - Bookings must go through `api/src/lib/booking.ts`. It writes the appointment, one lock document per 15-minute
   block (`lock-HH:mm`) and the day's `summary` in one Cosmos transactional batch; that is what prevents double
   booking. Never write appointments or locks directly. Availability rules live in `api/src/lib/availability.ts`.
+- A date's hours are its special hours if it has any, else the weekly hours: read them with `hoursOn`/`dayPlan`
+  in `api/src/shared/hours.ts`, never `weeklyHours[...]` directly. Time off (closures) still applies on top.
+- The customer chat assistant (`src/stores/chat.ts`, `src/components/ChatAssistant.vue`) is rule-based: questions
+  are read by `parseQuestion` in `api/src/shared/chat.ts` and answered only from live hours, availability and prices.
 - Validate all API input with zod in `api/src/lib/validation.ts`.
 - Services are only Basic Grooming, Full Grooming, Cat Grooming and Bath / Blow Dry, priced in Philippine pesos
   (`formatMoney` in `api/src/shared/format.ts`). Dog sizes are `small`, `medium`, `large`, `husky_chow`, shown to

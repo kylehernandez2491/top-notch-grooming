@@ -19,7 +19,7 @@ import { buildLockMap, dayAvailability, lockBlocks, lockId } from './availabilit
 import { Containers } from './cosmos';
 import { clientKeyFor, newManageToken } from './device';
 import { conflict, forbidden, HttpError } from './http';
-import { getAddOns, getService, listClientAppointments, listClosures, loadCounts, loadLocks } from './repo';
+import { getAddOns, getService, listClientAppointments, listClosures, listSpecialHours, loadCounts, loadLocks } from './repo';
 import { addDays, nowIn, ttlAfterDay, zonedUtcIso } from './time';
 
 type WithEtag<T> = T & { _etag?: string };
@@ -317,11 +317,17 @@ export async function assertSlotOffered(
   staff: boolean,
   ignoreAppointment?: Appointment,
 ): Promise<void> {
-  const [locks, counts, closures] = await Promise.all([loadLocks(c, day, day), loadCounts(c, day, day), listClosures(c, day, day)]);
+  const [locks, counts, closures, specialHours] = await Promise.all([
+    loadLocks(c, day, day),
+    loadCounts(c, day, day),
+    listClosures(c, day, day),
+    listSpecialHours(c, day, day),
+  ]);
   if (ignoreAppointment?.day === day) counts.set(day, Math.max(0, (counts.get(day) ?? 1) - 1));
   const availability = dayAvailability(day, {
     settings,
     closures,
+    specialHours,
     locked: buildLockMap(locks, ignoreAppointment?.id),
     counts,
     durationMinutes,

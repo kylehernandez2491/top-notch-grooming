@@ -36,6 +36,8 @@ const paths = {
   tub: 'M3 12h18v3a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5zM5 12V5a2 2 0 0 1 4 0M7 20l-1 2M17 20l1 2',
   menu: 'M4 6h16M4 12h16M4 18h16',
   external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  chat: 'M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM8 10h.01M12 10h.01M16 10h.01',
+  send: 'M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z',
 } as const;
 
 export type IconName = keyof typeof paths;

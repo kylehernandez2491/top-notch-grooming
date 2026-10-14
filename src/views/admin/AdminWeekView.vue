@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { AgendaResponse, Weekday } from '@shared/types';
-import { WEEKDAYS } from '@shared/types';
+import type { AgendaResponse } from '@shared/types';
 import { formatTime12, toMinutes } from '@shared/format';
+import { hoursOn } from '@shared/hours';
 import { api } from '@/api/client';
 import Icon from '@/components/Icon.vue';
 import { useCatalog } from '@/stores/catalog';
@@ -43,9 +43,12 @@ watch(
   { immediate: true },
 );
 
-/** Grid spans the earliest opening to the latest closing across the week. */
+/** Grid spans the earliest opening to the latest closing across the week, special hours included. */
 const bounds = computed(() => {
-  const hours = Object.values(catalog.settings?.weeklyHours ?? {}).filter(Boolean) as { open: string; close: string }[];
+  const hours = [
+    ...(Object.values(catalog.settings?.weeklyHours ?? {}).filter(Boolean) as { open: string; close: string }[]),
+    ...(agenda.value?.specialHours ?? []),
+  ];
   if (!hours.length) return { from: 8 * 60, to: 18 * 60 };
   return {
     from: Math.floor(Math.min(...hours.map((h) => toMinutes(h.open))) / 60) * 60,
@@ -59,7 +62,6 @@ const hourMarks = computed(() => {
   return marks;
 });
 
-const weekdayOf = (day: string): Weekday => WEEKDAYS[(new Date(`${day}T12:00`).getDay() + 6) % 7];
 const top = (hhmm: string) => (toMinutes(hhmm) - bounds.value.from) * PX_PER_MIN;
 const height = (from: string, to: string) => Math.max(22, (toMinutes(to) - toMinutes(from)) * PX_PER_MIN);
 
@@ -73,7 +75,7 @@ const byDay = computed(() => {
 });
 
 function blocked(day: string) {
-  const hours = catalog.settings?.weeklyHours[weekdayOf(day)];
+  const hours = catalog.settings ? hoursOn(day, catalog.settings.weeklyHours, agenda.value?.specialHours) : undefined;
   const closures = (agenda.value?.closures ?? []).filter((c) => c.date === day);
   if (!hours || closures.some((c) => !c.start)) return [{ start: formatHHMM(bounds.value.from), end: formatHHMM(bounds.value.to), label: closures.find((c) => !c.start)?.reason ?? 'Closed' }];
   return [
